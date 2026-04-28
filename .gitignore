@@ -1,0 +1,66 @@
+# ── Python ──────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+*.egg
+build/
+dist/
+.eggs/
+
+# ── Virtual environments ────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ── IDEs and editors ────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── Secrets — NEVER commit credentials ──────────────────────────────────
+.env
+.env.local
+*.token
+*token*.txt
+*secret*.txt
+*.pem
+*.key
+
+# ── Backup files (development snapshots) ───────────────────────
+*.bak
+*.orig
+
+# ── Jupyter / notebooks ─────────────────────────────────────
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# ── Testing & coverage ──────────────────────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# ── Generated outputs ───────────────────────────────────────────────────
+exports/
+out/
+output/
+tmp/
+*.log
+
+# ── OS-specific ─────────────────────────────────────────────────────────
+desktop.ini
+
+# ── Gradio ──────────────────────────────────────────────────────────────
+gradio_cached_examples/
+flagged/
+
+# ── Hugging Face ────────────────────────────────────────────────────────
+.huggingface/

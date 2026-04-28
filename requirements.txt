@@ -1,0 +1,12 @@
+# ── Core UI ────────────────────────────────────────────────────────────
+gradio>=5.0,<6.0
+
+# ── Numerical computing ─────────────────────────────────────────────────
+numpy>=1.24
+pandas>=2.0
+scipy>=1.11
+
+# ── Visualization ───────────────────────────────────────────────────────
+plotly>=5.18
+matplotlib>=3.7         # used for the class colour palette (tab10/tab20)
+kaleido>=0.2.1          # static image export for Plotly figures
