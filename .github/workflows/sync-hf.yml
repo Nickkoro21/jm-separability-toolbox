@@ -1,0 +1,34 @@
+name: Sync to Hugging Face Space
+
+# Auto-deploys this repo to the companion HF Space whenever main is updated.
+# Triggers on push to main and via manual workflow_dispatch.
+#
+# Required GitHub Secrets:
+#   HF_TOKEN  -  Hugging Face write access token
+#                (Settings -> Access Tokens -> "Write" role)
+#
+# HF Space slug: NickKoro21/jm-separability-toolbox
+# Decision #11 (HANDOFF) - Option Gamma.2 (GitHub Actions auto-deploy).
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  sync-to-hub:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo (full history for force-push)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: false
+
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          git push --force \
+            https://NickKoro21:$HF_TOKEN@huggingface.co/spaces/NickKoro21/jm-separability-toolbox \
+            main
