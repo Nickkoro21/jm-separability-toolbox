@@ -311,8 +311,8 @@ If you use this tool in academic work, please cite:
 [![GitHub](https://img.shields.io/badge/GitHub-Nickkoro21-181717?logo=github&logoColor=white)](https://github.com/Nickkoro21)
 
 MSc Geography and Applied Geoinformatics
-Department of Geography, [University of the Aegean](https://www.geo.aegean.gr/geo-en.php)
-[Remote Sensing & GIS Research Group (RSGIS Lab)](https://rsgis.geo.aegean.gr/)
+Department of Geography, [University of the Aegean](https://geography.aegean.gr/geoinformatics/index.php)
+[Remote Sensing & GIS Research Group (RSGIS Lab)](https://rsgis.aegean.gr/)
 
 **Thesis Supervisor**: Dr. Christos Vasilakos
 
@@ -320,8 +320,8 @@ Department of Geography, [University of the Aegean](https://www.geo.aegean.gr/ge
 
 - [MSc Programme — Geography and Applied Geoinformatics](https://geography.aegean.gr/geoinformatics/)
 - [Department of Geography](https://geography.aegean.gr/)
-- [University of the Aegean](https://www.geo.aegean.gr/geo-en.php)
-- [RSGIS Lab](https://rsgis.geo.aegean.gr/)
+- [University of the Aegean](https://geography.aegean.gr/geoinformatics/index.php)
+- [RSGIS Lab](https://rsgis.aegean.gr/)
 - Companion project: [PostProcessing Toolbox](https://github.com/Nickkoro21/PostProcessing-Toolbox) — ArcGIS Pro toolbox for vectorizing semantic segmentation outputs
 - Companion app: [3D Spectral Feature Space Explorer](https://huggingface.co/spaces/NickKoro21/spectral-3d-explorer) — interactive 3D visualization of class separability
 

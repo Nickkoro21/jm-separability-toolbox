@@ -62,10 +62,10 @@ FOOTER_HTML = """
     Nikolaos Koroniadis
   </a>
   &nbsp;·&nbsp; MSc Geography &amp; Applied Geoinformatics &nbsp;·&nbsp;
-  <a href="https://www.geo.aegean.gr/geo-en.php" target="_blank" rel="noopener"
+  <a href="https://geography.aegean.gr/geoinformatics/index.php" target="_blank" rel="noopener"
      style="color:#2563eb; text-decoration:none;">University of the Aegean</a>
   &nbsp;·&nbsp;
-  <a href="https://rsgis.geo.aegean.gr/" target="_blank" rel="noopener"
+  <a href="https://rsgis.aegean.gr/" target="_blank" rel="noopener"
      style="color:#9333ea; text-decoration:none;">RSGIS Lab</a>
   &nbsp;·&nbsp; Supervised by Dr. Christos Vasilakos
   <br/>

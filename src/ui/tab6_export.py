@@ -704,7 +704,7 @@ Generated {timestamp}.</p>
 <p class="author-line">
   Author: <strong>Nikolaos Koroniadis</strong> ·
   MSc Geography &amp; Applied Geoinformatics ·
-  <a href="https://www.geo.aegean.gr/geo-en.php" target="_blank" rel="noopener">University of the Aegean</a> ·
+  <a href="https://geography.aegean.gr/geoinformatics/index.php" target="_blank" rel="noopener">University of the Aegean</a> ·
   Supervisor: Dr. Christos Vasilakos ·
   <a href="https://github.com/Nickkoro21" target="_blank" rel="noopener">GitHub</a> ·
   <a href="https://www.linkedin.com/in/nick-koroniadis-328962226" target="_blank" rel="noopener">LinkedIn</a>
