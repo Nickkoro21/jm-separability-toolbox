@@ -1,5 +1,9 @@
 # ── Core UI ────────────────────────────────────────────────────────────
-gradio>=5.0,<6.0
+gradio>=5.10,<6.0
+# huggingface_hub 1.0+ dropped HfFolder, which older Gradio versions import
+# at startup. We both bump Gradio (>=5.10 has the fix) AND cap huggingface_hub
+# as a safety net so an aggressive pip resolver cannot reintroduce the break.
+huggingface_hub>=0.25,<1.0
 
 # ── Numerical computing ─────────────────────────────────────────────────
 numpy>=1.24
