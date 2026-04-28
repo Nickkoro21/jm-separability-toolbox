@@ -30,21 +30,24 @@ jobs:
           fetch-depth: 0
           lfs: false
 
-      - name: Strip data/media for HF Space (kept only in GitHub for docs)
+      - name: Build clean orphan branch for HF (squash + strip data/media)
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          if [ -d data/media ]; then
-            git rm -r data/media
-            git commit -m "[ci] Strip data/media for HF Space deployment"
-          else
-            echo "data/media not present, skipping strip step."
-          fi
+          # Create an orphan branch from main's tree with NO history.
+          # The HF Hub validates the full git history for binary files,
+          # so a single fresh commit without media is required.
+          git checkout --orphan hf-deploy-tmp
+          # Drop data/media from index AND from working tree.
+          git rm -rf --cached data/media 2>/dev/null || true
+          rm -rf data/media
+          git add -A
+          git commit -m "Deploy to HF Space (squashed from main)"
 
-      - name: Push to Hugging Face Space
+      - name: Force-push orphan branch as main to Hugging Face Space
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           git push --force \
             https://NickKoro21:$HF_TOKEN@huggingface.co/spaces/NickKoro21/jm-separability-toolbox \
-            main
+            hf-deploy-tmp:main
