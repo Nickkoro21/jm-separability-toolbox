@@ -1,12 +1,14 @@
 # ── Core UI ────────────────────────────────────────────────────────────
-# Gradio >=5.20 includes gradio_client >=1.8 which fixes a TypeError
-# in get_api_info() when a JSON schema contains a boolean value
-# ("argument of type 'bool' is not iterable").
-gradio>=5.20,<6.0
-# huggingface_hub 1.0+ dropped HfFolder, which older Gradio versions import
-# at startup. We both bump Gradio AND cap huggingface_hub as a safety net
-# so an aggressive pip resolver cannot reintroduce the break.
-huggingface_hub>=0.25,<1.0
+# Pinned to versions verified in local development. Earlier Gradio
+# versions hit a chain of issues on HF Space:
+#   - 5.0   : ImportError HfFolder (huggingface_hub >=1.0 dropped it)
+#   - 5.10  : same import broke when resolver pulled new hub
+#   - 5.20  : gradio_client TypeError in /api_info ("bool not iterable")
+#            AND dropdown change events stopped firing on first selection
+# Gradio 5.50 has all of these fixed AND works with huggingface_hub >=1.0.
+gradio>=5.50,<6.0
+gradio_client>=1.14
+huggingface_hub>=1.0,<2.0
 
 # ── Numerical computing ─────────────────────────────────────────────────
 numpy>=1.24

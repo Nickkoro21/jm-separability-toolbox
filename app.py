@@ -547,8 +547,4 @@ if __name__ == "__main__":
         server_name="0.0.0.0",
         server_port=port,
         show_error=True,
-        show_api=False,   # disables /api_info endpoint - works around an
-                          # upstream gradio_client TypeError when introspecting
-                          # the API schema ("argument of type 'bool' is not
-                          # iterable"). The UI does not depend on this endpoint.
     )
