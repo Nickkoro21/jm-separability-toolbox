@@ -8,7 +8,7 @@ sdk_version: "5.0.0"
 app_file: app.py
 pinned: false
 license: mit
-short_description: Sensor-agnostic Jeffries–Matusita separability for any multispectral CSV.
+short_description: Sensor-agnostic JM separability for multispectral data
 ---
 
 <div align="center">

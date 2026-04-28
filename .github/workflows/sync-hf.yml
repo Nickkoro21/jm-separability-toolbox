@@ -9,6 +9,11 @@ name: Sync to Hugging Face Space
 #
 # HF Space slug: NickKoro21/jm-separability-toolbox
 # Decision #11 (HANDOFF) - Option Gamma.2 (GitHub Actions auto-deploy).
+#
+# Note: data/media/ contains 14 large-ish PNG figures used only for
+# GitHub documentation / Pages. The HF Hub rejects binary files unless
+# they go through Xet storage, and the Gradio app does not need them at
+# runtime, so we strip them out before pushing to HF.
 
 on:
   push:
@@ -24,6 +29,17 @@ jobs:
         with:
           fetch-depth: 0
           lfs: false
+
+      - name: Strip data/media for HF Space (kept only in GitHub for docs)
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          if [ -d data/media ]; then
+            git rm -r data/media
+            git commit -m "[ci] Strip data/media for HF Space deployment"
+          else
+            echo "data/media not present, skipping strip step."
+          fi
 
       - name: Push to Hugging Face Space
         env:
