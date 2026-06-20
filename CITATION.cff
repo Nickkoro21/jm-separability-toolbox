@@ -1,0 +1,22 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Jeffries-Matusita Separability Toolbox (Spectral Separability Explorer)"
+abstract: "Sensor-agnostic Jeffries-Matusita (JM) separability analysis for multispectral data, exploring class separability across spectral/geometric/thermal features. MSc thesis deliverable, University of the Aegean (Department of Geography, RSGIS Lab), Mytilene, Greece, 2026; supervised by Dr. Christos Vasilakos."
+type: software
+authors:
+  - family-names: Koroniadis
+    given-names: Nikolaos
+    affiliation: "University of the Aegean, Department of Geography, RSGIS Lab"
+version: "1.0.0"
+date-released: "2026-06-20"
+license: MIT
+repository-code: "https://github.com/Nickkoro21/jm-separability-toolbox"
+url: "https://huggingface.co/spaces/NickKoro21/jm-separability-toolbox"
+keywords:
+  - Jeffries-Matusita
+  - separability
+  - spectral analysis
+  - multispectral
+  - remote sensing
+  - Gradio
+  - MicaSense Altum-PT
