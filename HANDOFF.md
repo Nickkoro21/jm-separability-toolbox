@@ -57,7 +57,7 @@ first stop before any modification.
 | `app.py` | Gradio entry point. Builds the 6-tab `Blocks` shell, defines tab-transition handlers, mounts the footer, calls `app.launch()`. **The footer HTML lives here** (lines ~55–80). |
 | `README.md` | Two roles: (a) GitHub README rendered on the repo home, (b) **HF Space metadata block** (the YAML frontmatter at the top configures `sdk_version`, `python_version`, emoji, colours, etc. — HF reads this on every push). |
 | `requirements.txt` | Python pinning. **Critical for HF Space stability** — see §5 for the full version-pin saga. |
-| `LICENSE` | MIT. |
+| `LICENSE` | AGPL-3.0. |
 | `.gitignore` | Excludes `.venv/`, `__pycache__/`, `*.bak`, `*.orig`, `.env`, `*.token`, build artefacts. |
 | `run.ps1` | Local launcher (PowerShell). Activates `.venv` and runs `python app.py`. Not used on HF — there `app.py` is the entry. |
 | `pyproject.toml` | (if present) build config; not load-bearing for the app. |

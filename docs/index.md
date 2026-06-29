@@ -1,4 +1,4 @@
-﻿---
+---
 layout: default
 ---
 
@@ -47,4 +47,4 @@ If you use this tool in academic work:
 
 Thesis Supervisor: Dr. Christos Vasilakos.
 
-Released under the [MIT License](https://github.com/Nickkoro21/jm-separability-toolbox/blob/main/LICENSE).
+Released under the [GNU AGPL v3.0](https://github.com/Nickkoro21/jm-separability-toolbox/blob/main/LICENSE).
