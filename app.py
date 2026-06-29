@@ -77,7 +77,7 @@ FOOTER_HTML = """
   &nbsp;·&nbsp;
   <a href="https://huggingface.co/spaces/NickKoro21/spectral-3d-explorer" target="_blank"
      rel="noopener" style="color:#d97706; text-decoration:none;">Companion: 3D Explorer</a>
-  &nbsp;·&nbsp; MIT License
+  &nbsp;·&nbsp; GNU AGPL v3.0
 </div>
 """
 

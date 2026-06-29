@@ -1,4 +1,4 @@
-﻿---
+---
 title: Spectral Separability Explorer
 emoji: 🛰️
 colorFrom: blue
@@ -18,7 +18,7 @@ short_description: Sensor-agnostic JM separability for multispectral data
 
 ### Sensor-agnostic Jeffries–Matusita separability analysis for multispectral data
 
-[![License: MIT](https://img.shields.io/badge/License-AGPL_v3-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL_v3-yellow.svg)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Gradio](https://img.shields.io/badge/Gradio-5.0+-F97316?logo=gradio&logoColor=white)](https://gradio.app/)
 [![Hugging Face Space](https://img.shields.io/badge/🤗%20HF%20Space-Live%20Demo-FFD21E)](https://huggingface.co/spaces/NickKoro21/jm-separability-toolbox)
@@ -218,7 +218,7 @@ jm-separability-toolbox/
 ├── app.py                       Entry point (Gradio root)
 ├── requirements.txt             Python dependencies
 ├── README.md                    This file (also serves as HF Space landing page)
-├── LICENSE                      MIT
+├── LICENSE                      AGPL-3.0
 ├── run.ps1                      PowerShell launcher (Windows)
 ├── src/
 │   ├── core/
