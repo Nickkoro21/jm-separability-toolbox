@@ -8,7 +8,7 @@ sdk_version: "5.50.0"
 python_version: "3.11"
 app_file: app.py
 pinned: false
-license: mit
+license: agpl-3.0
 short_description: Sensor-agnostic JM separability for multispectral data
 ---
 
