@@ -1,4 +1,4 @@
----
+﻿---
 title: Spectral Separability Explorer
 emoji: 🛰️
 colorFrom: blue
@@ -18,7 +18,7 @@ short_description: Sensor-agnostic JM separability for multispectral data
 
 ### Sensor-agnostic Jeffries–Matusita separability analysis for multispectral data
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/badge/License-AGPL_v3-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Gradio](https://img.shields.io/badge/Gradio-5.0+-F97316?logo=gradio&logoColor=white)](https://gradio.app/)
 [![Hugging Face Space](https://img.shields.io/badge/🤗%20HF%20Space-Live%20Demo-FFD21E)](https://huggingface.co/spaces/NickKoro21/jm-separability-toolbox)
@@ -338,10 +338,11 @@ Department of Geography, [University of the Aegean](https://geography.aegean.gr/
 
 ## License
 
-Released under the [MIT License](LICENSE) — free for academic, commercial, and personal use.
+Released under the [GNU AGPL v3.0](LICENSE) — free for academic, commercial, and personal use.
 
 ---
 
 <div align="center">
 <sub>Made with ☕, 🛰️, and a lot of <code>NumPy</code> in Mytilene, Greece.</sub>
 </div>
+
