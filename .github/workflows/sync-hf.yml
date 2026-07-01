@@ -48,6 +48,10 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          git push --force \
-            https://NickKoro21:$HF_TOKEN@huggingface.co/spaces/NickKoro21/jm-separability-toolbox \
+          # Pass the token via an HTTP Authorization header rather than
+          # embedding it in the remote URL, so it never lands in the process
+          # arguments or in .git/config. (Same mechanism actions/checkout uses.)
+          AUTH_HEADER="Authorization: Basic $(printf 'NickKoro21:%s' "$HF_TOKEN" | base64 -w0)"
+          git -c http.extraheader="$AUTH_HEADER" push --force \
+            https://huggingface.co/spaces/NickKoro21/jm-separability-toolbox \
             hf-deploy-tmp:main
