@@ -24,6 +24,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
+from src.core import resolve_class_label as _resolve_class_label
 from src.core import interpret_jm
 from src.core import jm_matrix as _compute_jm_matrix
 from src.viz import (
@@ -40,13 +41,6 @@ SortOption = Literal["ascending", "descending"]
 
 
 # ─── Internal helpers ────────────────────────────────────────────────────
-def _resolve_class_label(cid: Any, mapping: Mapping[Any, str] | None) -> str:
-    """Resolve a class id to a display string. Falls back to ``str(cid)``."""
-    if mapping is None:
-        return str(cid)
-    return str(mapping.get(cid, cid))
-
-
 def _empty_figure(message: str) -> go.Figure:
     """Return a clean, centred placeholder figure with a message."""
     fig = go.Figure()

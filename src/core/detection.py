@@ -266,6 +266,21 @@ def suggest_class_label_mapping(
     return {i: f"Class {i}" for i in unique_ints}
 
 
+def resolve_class_label(cid, mapping) -> str:
+    """Display name for a class id, shared by every table / plot.
+
+    Lookup order: ``mapping[cid]`` → ``mapping[str(cid)]`` (keys may have
+    been flattened to strings by a JSON round-trip) → ``str(cid)``.
+    ``mapping`` may be ``None``.
+    """
+    if not mapping:
+        return str(cid)
+    val = mapping.get(cid)
+    if val is None:
+        val = mapping.get(str(cid))
+    return str(cid if val is None else val)
+
+
 # ─── Aggregator ───────────────────────────────────────────────────────────────
 
 def auto_detect_schema(

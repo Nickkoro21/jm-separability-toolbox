@@ -84,6 +84,8 @@ def _on_confirm(name: str | None, state: dict):
     # Cascade-reset downstream — any tab1 change invalidates later steps
     for k in ("tab2_done", "tab3_done", "tab4_done", "tab5_done"):
         new_state[k] = False
+    new_state["exhaustive_result"] = None   # free a possibly large ranking
+    new_state["analysis_mode"] = "manual"
 
     if is_cust:
         msg = (

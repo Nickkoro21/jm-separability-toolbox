@@ -60,6 +60,7 @@ Constants exposed for re-use:
 
 from __future__ import annotations
 
+import logging
 import re
 from typing import Any
 
@@ -179,24 +180,43 @@ def _suggest_default_subsets(available_bands: list[str]) -> list[list[str]]:
 
 # ─── Exhaustive-mode helpers ──────────────────────────────────────────────────
 
-def _format_combo_estimate(n_bands: int, min_k: int) -> str:
-    """Info line: number of combinations + rough runtime for the search."""
+def _coerce_min_k(min_k: Any) -> int:
+    """Slider value → int, falling back to the default on junk input."""
+    try:
+        return int(min_k)
+    except (TypeError, ValueError):
+        return DEFAULT_MIN_K
+
+
+def _check_exhaustive_inputs(n_bands: int, min_k: int) -> str | None:
+    """Single source of truth for the exhaustive-mode input guards.
+
+    Returns an error message (without the ❌ prefix) or ``None`` when the
+    inputs are acceptable. Used by both the live estimate line and the
+    validation line so the two can never disagree.
+    """
     if n_bands < 2:
-        return (
-            f"<span style='color:{_C_INFO};'>ℹ️ Select at least "
-            f"{max(2, min_k)} candidate bands.</span>"
-        )
+        return "Select at least 2 candidate bands."
     if n_bands > MAX_BANDS:
         return (
-            f"<span style='color:{_C_ERR};'>❌ {n_bands} candidate bands "
-            f"exceed the limit of {MAX_BANDS}. Deselect "
-            f"{n_bands - MAX_BANDS} band(s).</span>"
+            f"{n_bands} candidate bands exceed the limit of {MAX_BANDS}. "
+            f"Deselect {n_bands - MAX_BANDS} band(s)."
         )
     if min_k > n_bands:
         return (
-            f"<span style='color:{_C_ERR};'>❌ Minimum subset size k = "
-            f"{min_k} exceeds the {n_bands} candidate bands.</span>"
+            f"Minimum subset size k = {min_k} exceeds the {n_bands} "
+            f"candidate bands."
         )
+    return None
+
+
+def _format_combo_estimate(n_bands: int, min_k: int) -> str:
+    """Info line: number of combinations + rough runtime for the search."""
+    err = _check_exhaustive_inputs(n_bands, min_k)
+    if err is not None:
+        color = _C_INFO if n_bands < 2 else _C_ERR
+        icon = "ℹ️" if n_bands < 2 else "❌"
+        return f"<span style='color:{color};'>{icon} {err}</span>"
     n_combos = count_combinations(n_bands, min_k)
     est = n_combos * _SECONDS_PER_COMBO
     if est < 1:
@@ -223,24 +243,10 @@ def _validate_exhaustive(
     if n_classes < 2:
         return False, f"❌ Need at least 2 classes selected (got {n_classes})."
     bands = list(candidate_bands or [])
-    try:
-        k = int(min_k)
-    except (TypeError, ValueError):
-        k = DEFAULT_MIN_K
-    if len(bands) < 2:
-        return False, "❌ Select at least 2 candidate bands."
-    if len(bands) > MAX_BANDS:
-        return (
-            False,
-            f"❌ {len(bands)} candidate bands exceed the limit of "
-            f"{MAX_BANDS}. Deselect {len(bands) - MAX_BANDS} band(s).",
-        )
-    if k > len(bands):
-        return (
-            False,
-            f"❌ Minimum subset size k = {k} exceeds the {len(bands)} "
-            f"candidate bands.",
-        )
+    k = _coerce_min_k(min_k)
+    err = _check_exhaustive_inputs(len(bands), k)
+    if err is not None:
+        return False, f"❌ {err}"
     n_combos = count_combinations(len(bands), k)
     return (
         True,
@@ -520,10 +526,7 @@ def _on_exhaustive_inputs_change(
     min_k: Any,
 ):
     """Refresh the combination-count estimate. Outputs (1): exh_estimate."""
-    try:
-        k = int(min_k)
-    except (TypeError, ValueError):
-        k = DEFAULT_MIN_K
+    k = _coerce_min_k(min_k)
     return gr.update(value=_format_combo_estimate(len(candidate_bands or []), k))
 
 
@@ -557,6 +560,17 @@ def _run_exhaustive(
         )
     except ValueError as exc:
         return None, f"❌ Exhaustive search failed: {exc}"
+    except MemoryError:
+        return None, (
+            "❌ Exhaustive search ran out of memory. Deselect some candidate "
+            "bands or raise the minimum subset size k."
+        )
+    except Exception as exc:  # noqa: BLE001 — surface inline, never a toast
+        logging.getLogger(__name__).exception("Exhaustive search crashed")
+        return None, (
+            f"❌ Exhaustive search failed: {type(exc).__name__}: {exc}. "
+            f"Check that the class column has a single consistent type."
+        )
     return result, None
 
 
@@ -588,7 +602,7 @@ def _on_confirm(
             )
         exhaustive_result, err = _run_exhaustive(
             state, list(class_selection or []), list(candidate_bands or []),
-            int(min_k), progress,
+            _coerce_min_k(min_k), progress,
         )
         if err is not None or exhaustive_result is None:
             return state, gr.update(
@@ -628,6 +642,14 @@ def _on_confirm(
     n_subsets = len(parsed_subsets)
     if is_exh and exhaustive_result is not None:
         r = exhaustive_result
+        dropped_note = ""
+        if r.n_rows_dropped:
+            dropped_note = (
+                f"</span><br/><span style='color:{_C_WARN};'>⚠ "
+                f"{r.n_rows_dropped:,} row(s) with a non-finite value in some "
+                f"candidate band were excluded; Step 5 and the export use the "
+                f"same {len(r.kept_index):,} rows so all numbers agree."
+            )
         summary = (
             f"<span style='color:{_C_OK};'>"
             f"✅ <b>Exhaustive search complete.</b> "
@@ -635,7 +657,8 @@ def _on_confirm(
             f"evaluated in {r.elapsed_s:.1f} s · {n_classes} classes. "
             f"The best combination at each size was added as a subset "
             f"(<code>{'</code>, <code>'.join(parsed_subsets)}</code>). "
-            f"Proceed to <b>Step 5</b> for the full ranking.</span>"
+            f"Proceed to <b>Step 5</b> for the full ranking."
+            f"{dropped_note}</span>"
         )
     else:
         summary = (

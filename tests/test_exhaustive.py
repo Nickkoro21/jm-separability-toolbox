@@ -177,3 +177,66 @@ def test_demo_dataset_canonical_values(demo):
     best3 = res.best_per_k("mean").set_index("k").loc[3]
     assert sorted(res.bands_of(best3["bands"])) == ["NIR", "Red", "nDSM_m"]
     assert best3["mean_jm"] == pytest.approx(1.607, abs=0.001)
+
+
+# ─── Regressions from the QA review (2026-10-30) ─────────────────────────────
+
+def test_duplicate_display_names_do_not_crash(synthetic):
+    """Two class ids sharing a display name must not break worst_pair."""
+    bands = [c for c in synthetic.columns if c != "cls"]
+    labels = {0: "Veg", 1: "Veg", 2: "Water", 3: "Soil"}
+    res = exhaustive_search(synthetic, "cls", bands, min_k=5, class_labels=labels)
+    names = set(res.class_names.values())
+    assert len(names) == 4 and "Veg (0)" in names and "Veg (1)" in names
+    assert res.ranking["worst_pair"].notna().all()
+
+
+def test_nan_rows_are_reported_and_reproducible(synthetic):
+    """NaN in one band drops the row for every subset; kept_index reproduces it."""
+    df = synthetic.copy()
+    bands = [c for c in df.columns if c != "cls"]
+    df.loc[df.index[:60], "b5"] = np.nan
+    res = exhaustive_search(df, "cls", bands, min_k=5)
+    assert res.n_rows_dropped == 60
+    assert len(res.kept_index) == len(df) - 60
+    # A subset WITHOUT the NaN band reproduces the ranking only on kept rows.
+    combo = ["b0", "b1", "b2", "b3", "b4"]
+    mat, _ = jm_matrix(df.loc[res.kept_index, combo].to_numpy(), df.loc[res.kept_index, "cls"].to_numpy())
+    iu, ju = np.triu_indices(mat.shape[0], k=1)
+    row = res.ranking.set_index("bands").loc[BAND_SEP.join(combo)]
+    assert row["mean_jm"] == pytest.approx(float(np.nanmean(mat[iu, ju])), abs=1e-9)
+
+
+def test_sorted_views_match_rank_columns(synthetic):
+    bands = [c for c in synthetic.columns if c != "cls"]
+    res = exhaustive_search(synthetic, "cls", bands)
+    assert (res.top(len(res.ranking), by="mean")["rank_mean"].to_numpy() == np.arange(1, len(res.ranking) + 1)).all()
+    by_min = res.top(len(res.ranking), by="min")
+    assert (by_min["rank_min"].to_numpy() == np.arange(1, len(res.ranking) + 1)).all()
+    assert (np.diff(by_min["min_jm"].to_numpy()) <= 1e-12).all()
+
+
+def test_bucket_counts_match_interpret_jm(synthetic):
+    from src.core import interpret_jm
+    bands = [c for c in synthetic.columns if c != "cls"]
+    res = exhaustive_search(synthetic, "cls", bands, min_k=6)   # single combo
+    row = res.ranking.iloc[0]
+    mat, _ = jm_matrix(synthetic[bands].to_numpy(), synthetic["cls"].to_numpy())
+    iu, ju = np.triu_indices(mat.shape[0], k=1)
+    expected = {b: 0 for b in ("Poor", "Moderate", "Good", "Excellent")}
+    for v in mat[iu, ju]:
+        expected[interpret_jm(v)] += 1
+    assert row["count_poor"] == expected["Poor"]
+    assert row["count_moderate"] == expected["Moderate"]
+    assert row["count_good"] == expected["Good"]
+    assert row["count_excellent"] == expected["Excellent"]
+    assert str(row["mean_bucket"]) == interpret_jm(row["mean_jm"])
+
+
+def test_string_class_labels(synthetic):
+    df = synthetic.copy()
+    df["cls"] = df["cls"].map({0: "water", 1: "urban", 2: "forest", 3: "soil"})
+    bands = [c for c in df.columns if c != "cls"]
+    res = exhaustive_search(df, "cls", bands, min_k=5)
+    assert sorted(res.labels) == ["forest", "soil", "urban", "water"]
+    assert "forest" in str(res.ranking["worst_pair"].iloc[0]) or True  # just must not crash

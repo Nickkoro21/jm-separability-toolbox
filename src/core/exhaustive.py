@@ -56,7 +56,7 @@ DEFAULT_MIN_K    = 3
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import combinations, islice
 from math import comb
 from typing import Any, Callable, Literal, Mapping, Sequence
@@ -64,6 +64,7 @@ from typing import Any, Callable, Literal, Mapping, Sequence
 import numpy as np
 import pandas as pd
 
+from .detection import resolve_class_label
 from .jm import (
     DEFAULT_REGULARISATION,
     JM_BUCKETS,
@@ -124,14 +125,20 @@ def count_combinations(
     return sum(comb(n_bands, k) for k in range(min_k, max_k + 1))
 
 
-def _bucket_vectorised(values: np.ndarray) -> np.ndarray:
-    """Vectorised 4-bucket interpretation. NaN → ``Poor`` (as interpret_jm)."""
-    out = np.full(values.shape, "Poor", dtype=object)
-    finite = np.isfinite(values)
-    out[finite & (values >= JM_THRESHOLD_POOR)] = "Moderate"
-    out[finite & (values >= JM_THRESHOLD_MODERATE)] = "Good"
-    out[finite & (values >= JM_THRESHOLD_GOOD)] = "Excellent"
-    return out
+_BUCKET_EDGES = np.asarray(
+    [JM_THRESHOLD_POOR, JM_THRESHOLD_MODERATE, JM_THRESHOLD_GOOD], dtype=np.float64,
+)
+
+
+def _bucket_codes(values: np.ndarray) -> np.ndarray:
+    """Vectorised 4-bucket interpretation as ``int8`` codes into ``JM_BUCKETS``.
+
+    0 = Poor, 1 = Moderate, 2 = Good, 3 = Excellent. NaN → Poor, matching
+    :func:`src.core.jm.interpret_jm`. Integer codes keep the hot loop free
+    of Python string objects; names are materialised only for display.
+    """
+    v = np.where(np.isfinite(values), values, -1.0)
+    return np.searchsorted(_BUCKET_EDGES, v, side="right").astype(np.int8)
 
 
 def _batched_jm_lu(
@@ -231,6 +238,23 @@ def _jm_all_pairs(
     return out
 
 
+def _unique_class_names(labels: Sequence, class_labels: Mapping | None) -> dict:
+    """``{class_id: display name}`` with duplicates disambiguated.
+
+    Two ids mapping to the same display name (e.g. both "Other") would
+    collide in the ``worst_pair`` categories, so such names get the id
+    appended: ``"Other (3)"``.
+    """
+    names = {lab: resolve_class_label(lab, class_labels) for lab in labels}
+    seen: dict[str, int] = {}
+    for nm in names.values():
+        seen[nm] = seen.get(nm, 0) + 1
+    return {
+        lab: (f"{nm} ({lab})" if seen[nm] > 1 else nm)
+        for lab, nm in names.items()
+    }
+
+
 def _chunk_size(n_classes: int, n_pairs: int, k: int) -> int:
     """Combinations per batch so the covariance stacks stay ~25 MB."""
     floats_per_combo = max(1, (n_classes + 2 * n_pairs) * k * k)
@@ -269,6 +293,12 @@ class ExhaustiveResult:
     min_k, max_k : int
     n_combinations : int
     elapsed_s : float
+    kept_index : pd.Index
+        Index labels of the rows actually used (finite across every
+        candidate band). Downstream per-subset computations should be run
+        on exactly these rows so their numbers match the ranking.
+    n_rows_dropped : int
+        Rows excluded because of a non-finite value in some candidate band.
     """
     ranking: pd.DataFrame
     bands: list[str]
@@ -278,6 +308,8 @@ class ExhaustiveResult:
     max_k: int
     n_combinations: int
     elapsed_s: float
+    kept_index: pd.Index = field(default_factory=lambda: pd.Index([]))
+    n_rows_dropped: int = 0
     # ── accessors ────────────────────────────────────────────────────────
     def bands_of(self, bands_str: str) -> list[str]:
         """Recover the band list from a ``ranking['bands']`` string."""
@@ -319,14 +351,17 @@ class ExhaustiveResult:
         return {f"Best-{r.k}": self.bands_of(r.bands) for r in rows}
 
     def _sorted(self, by: RankCriterion) -> pd.DataFrame:
-        if by == "min":
-            return self.ranking.sort_values(
-                ["min_jm", "mean_jm"], ascending=[False, False], kind="mergesort",
-            )
+        """View of ``ranking`` ordered by the criterion.
+
+        ``ranking`` is stored in ``by="mean"`` order and carries both rank
+        columns, so no multi-key re-sort of the (possibly million-row)
+        table is needed: the mean view is the table itself and the min
+        view is a single integer sort on ``rank_min``.
+        """
         if by == "mean":
-            return self.ranking.sort_values(
-                ["mean_jm", "min_jm"], ascending=[False, False], kind="mergesort",
-            )
+            return self.ranking
+        if by == "min":
+            return self.ranking.sort_values("rank_min", kind="mergesort")
         raise ValueError(f"by must be 'mean' or 'min', got {by!r}")
 
 
@@ -352,7 +387,11 @@ def exhaustive_search(
     class_col : str
     bands : sequence of str
         Candidate bands (2 ≤ len ≤ :data:`MAX_BANDS`). Rows with any
-        non-finite value across these bands are dropped once, up front.
+        non-finite value across these bands are dropped once, up front
+        (``ExhaustiveResult.kept_index`` / ``n_rows_dropped`` report
+        this). Note that :func:`src.core.jm_matrix` drops NaN rows per
+        subset instead, so to reproduce a ranking value with
+        ``jm_matrix`` run it on ``df.loc[result.kept_index]``.
     min_k, max_k : int
         Subset-size range (inclusive). ``max_k`` defaults to ``len(bands)``.
     class_labels : mapping, optional
@@ -409,6 +448,8 @@ def exhaustive_search(
     y = df[class_col].to_numpy()
     finite = np.all(np.isfinite(X), axis=1)
     X, y = X[finite], y[finite]
+    kept_index = df.index[finite]
+    n_rows_dropped = int((~finite).sum())
     if X.shape[0] == 0:
         raise ValueError("No rows with finite values across the candidate bands.")
 
@@ -421,12 +462,7 @@ def exhaustive_search(
     MU = np.stack([stats[lab][0] for lab in labels])    # (C, n)
     COV = np.stack([stats[lab][1] for lab in labels])   # (C, n, n)
 
-    def _name(cid: Any) -> str:
-        if class_labels is None:
-            return str(cid)
-        return str(class_labels.get(cid, class_labels.get(str(cid), cid)))
-
-    class_names = {lab: _name(lab) for lab in labels}
+    class_names = _unique_class_names(labels, class_labels)
     pair_idx = [(i, j) for i in range(n_classes) for j in range(i + 1, n_classes)]
     pair_i = np.asarray([i for i, _ in pair_idx], dtype=np.intp)
     pair_j = np.asarray([j for _, j in pair_idx], dtype=np.intp)
@@ -465,9 +501,9 @@ def exhaustive_search(
             # argmin of NaN-filled rows: treat NaN as -inf so it is "worst".
             worst = np.argmin(np.where(np.isnan(jm_pairs), -np.inf, jm_pairs), axis=1)
 
-            buckets = _bucket_vectorised(jm_pairs)                  # (M, P) object
+            codes = _bucket_codes(jm_pairs)                         # (M, P) int8
             counts = np.stack(
-                [(buckets == b).sum(axis=1) for b in JM_BUCKETS], axis=1,
+                [(codes == c).sum(axis=1) for c in range(len(JM_BUCKETS))], axis=1,
             )
 
             names_chunk = [BAND_SEP.join(bands[t] for t in row) for row in idx]
@@ -503,8 +539,8 @@ def exhaustive_search(
         "count_good": counts_all[:, 2],
         "count_excellent": counts_all[:, 3],
     })
-    ranking["mean_bucket"] = pd.Categorical(
-        _bucket_vectorised(mean_all), categories=list(JM_BUCKETS),
+    ranking["mean_bucket"] = pd.Categorical.from_codes(
+        _bucket_codes(mean_all), categories=list(JM_BUCKETS),
     )
 
     # Ranks under both criteria (1 = best). NaN means sort last.
@@ -531,6 +567,8 @@ def exhaustive_search(
         max_k=max_k,
         n_combinations=int(total),
         elapsed_s=float(elapsed),
+        kept_index=kept_index,
+        n_rows_dropped=n_rows_dropped,
     )
 
 

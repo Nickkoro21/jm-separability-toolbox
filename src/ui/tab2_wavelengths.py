@@ -175,6 +175,8 @@ def _on_confirm(rows: Any, state: dict) -> tuple[dict, Any]:
     # Cascade-reset downstream
     for k in ("tab3_done", "tab4_done", "tab5_done"):
         new_state[k] = False
+    new_state["exhaustive_result"] = None   # free a possibly large ranking
+    new_state["analysis_mode"] = "manual"
 
     summary = (
         f"<span style='color:#16a34a;'>✅ <b>{len(normalised)} bands confirmed.</b> "

@@ -163,9 +163,17 @@ def _filter_df_by_classes(state: dict) -> pd.DataFrame | None:
     schema = state.get("detected_schema") or {}
     class_col = schema.get("class_col")
     selected = state.get("selected_class_ids") or []
-    if not class_col or class_col not in df.columns or not selected:
-        return df
-    return df[df[class_col].isin(selected)].copy()
+    if class_col and class_col in df.columns and selected:
+        df = df[df[class_col].isin(selected)]
+    # In exhaustive mode restrict to the rows the search actually used
+    # (finite across every candidate band) so per-subset numbers match
+    # the ranking exactly.
+    result = state.get("exhaustive_result")
+    if state.get("analysis_mode") == "exhaustive" and result is not None:
+        kept = getattr(result, "kept_index", None)
+        if kept is not None and len(kept) < len(df):
+            df = df.loc[df.index.intersection(kept)]
+    return df.copy()
 
 
 def _ready_for_compute(state: dict) -> bool:

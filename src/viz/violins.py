@@ -30,6 +30,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+from src.core import resolve_class_label as _resolve_class_label
 from src.viz import (
     apply_modern_layout,
     generate_class_palette,
@@ -66,13 +67,6 @@ def _empty_figure(message: str) -> go.Figure:
     fig.update_xaxes(visible=False)
     fig.update_yaxes(visible=False)
     return apply_modern_layout(fig, height=400)
-
-
-def _resolve_class_label(cid: Any, mapping: Mapping[Any, str] | None) -> str:
-    """Resolve a class id to a display string. Falls back to ``str(cid)``."""
-    if mapping is None:
-        return str(cid)
-    return str(mapping.get(cid, cid))
 
 
 def _validate_inputs(

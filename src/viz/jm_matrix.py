@@ -32,6 +32,7 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
+from src.core import resolve_class_label as _resolve_class_label
 from src.core import interpret_jm
 from src.core import jm_matrix as _compute_jm_matrix
 from src.viz import (
@@ -106,13 +107,6 @@ def _build_colorbar_config() -> dict[str, Any]:
         len=0.85,
         outlinewidth=0,
     )
-
-
-def _resolve_class_label(cid: Any, mapping: Mapping[Any, str] | None) -> str:
-    """Resolve a class id to a display string. Falls back to ``str(cid)``."""
-    if mapping is None:
-        return str(cid)
-    return str(mapping.get(cid, cid))
 
 
 def _apply_triangle_mask(matrix: np.ndarray, show: ShowOption) -> np.ndarray:

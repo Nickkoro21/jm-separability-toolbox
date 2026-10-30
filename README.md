@@ -260,7 +260,7 @@ python app.py
 
 The Gradio interface opens at `http://localhost:7860`.
 
-To run the test suite (core JM math and the exhaustive search, 24 tests):
+To run the test suite (core JM math and the exhaustive search, 30 tests):
 
 ```bash
 pip install pytest
@@ -326,7 +326,7 @@ jm-separability-toolbox/
 - [x] Thesis-figure documentation gallery (`data/media/`)
 - [x] GitHub Pages documentation site (`docs/`)
 - [x] Continuous deployment to Hugging Face Space (GitHub Actions, token passed via Authorization header)
-- [x] Unit-test suite under `tests/` (pytest)
+- [x] Unit-test suite under `tests/` (pytest, 30 tests)
 - [x] Exhaustive band search: every combination of k or more bands, ranked by mean and worst-pair JM
 - [ ] "Must-include" band constraint for the exhaustive search (e.g. always keep RGB)
 - [ ] Greedy forward selection as a fallback above 20 candidate bands

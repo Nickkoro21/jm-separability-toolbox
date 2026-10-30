@@ -15,13 +15,13 @@
 | Hugging Face Space | 🟢 Running | https://huggingface.co/spaces/NickKoro21/jm-separability-toolbox |
 | GitHub Actions auto-sync | 🟢 Working | Triggers on push to `main`; HF token sent as an Authorization header (not in the URL) |
 | GitHub Pages | 🟢 `docs/` committed (Cayman) | https://nickkoro21.github.io/jm-separability-toolbox/ |
-| Test suite | 🟢 `pytest` (24 tests) | `tests/test_jm.py`, `tests/test_exhaustive.py` |
+| Test suite | 🟢 `pytest` (30 tests) | `tests/test_jm.py`, `tests/test_exhaustive.py` |
 
 The app works end-to-end on HF Space. The 6-tab Gradio workflow
 (Camera → Wavelengths → Upload CSV → Configure → Results → Export)
 is fully functional and deployed. Since Phase F, Step 4 also offers an
 **Exhaustive search** mode (every combination of ≥ k bands, ranked) —
-see §3 decisions D7–D11 and `src/core/exhaustive.py`.
+see §3 decisions D7–D13 and `src/core/exhaustive.py`.
 
 ---
 
@@ -249,6 +249,8 @@ These were made during the final cleanup pass before deployment. Do
 | D9 | **MAX_BANDS = 20, DEFAULT_MIN_K = 3** | 20 bands → 1 048 365 combinations ≈ 1 min; 21 would double it. Decided with Nikolaos (2026-10-30). Above the cap the UI asks to deselect bands or raise k | `src/core/exhaustive.py` constants; `_validate_exhaustive` in Tab 4 |
 | D10 | **Best-per-k (mean criterion) become the Tab 5 subsets**, named `Best-3` … `Best-n`; capped at `MAX_SUBSETS = 10` keeping the smallest k's plus the full set | Heatmaps / ranked pairs / export work unchanged; band *reduction* is the usual question so small k wins when capping | `ExhaustiveResult.subsets_for_tab5()`, `tab5_results.MAX_SUBSETS` |
 | D11 | **Cholesky fast path, LU fallback; no SciPy in the kernel** | SciPy's batched `solve_triangular` loops in Python (measured 5× slower). `np.linalg.cholesky` + `np.linalg.solve` on the factor is the fastest NumPy-only route | `_jm_all_pairs` / `_batched_jm_lu` in `exhaustive.py` |
+| D12 | **Exhaustive mode and Step 5 / Step 6 use the same rows** | The search drops rows with a non-finite value in *any* candidate band once (`ExhaustiveResult.kept_index`), while `jm_matrix` drops per subset. To keep the Best-k numbers identical everywhere, Tab 5 and Tab 6 restrict the DataFrame to `kept_index` in exhaustive mode and Tab 4 shows a ⚠ with the dropped-row count | `_filter_df_by_classes` in `tab5_results.py` / `tab6_export.py`; test `test_nan_rows_are_reported_and_reproducible` |
+| D13 | **One `resolve_class_label` in `src.core`** (id → `str(id)` key → `str(id)`) used by exhaustive and all six viz modules; duplicate display names get the id appended (`Other (3)`) | Seven private copies had drifted (viz ignored string keys) and duplicate names crashed the `worst_pair` categorical | `src/core/detection.py`, `_unique_class_names` in `exhaustive.py` |
 
 If you're tempted to add `jinja2` for "cleaner templating": don't.
 The HTML guide is small enough that f-strings are clearer and the

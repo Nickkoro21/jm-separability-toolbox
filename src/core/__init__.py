@@ -64,6 +64,7 @@ from .detection import (
     detect_class_column,
     detect_non_spectral_columns,
     detect_xy_columns,
+    resolve_class_label,
     suggest_class_label_mapping,
 )
 
@@ -138,6 +139,7 @@ __all__ = [
     "detect_class_column",
     "detect_non_spectral_columns",
     "detect_xy_columns",
+    "resolve_class_label",
     "suggest_class_label_mapping",
     # ── exhaustive ────────────────────────────────────────────────────────
     "BAND_SEP",

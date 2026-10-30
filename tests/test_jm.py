@@ -95,3 +95,12 @@ def test_demo_canonical_mean_jm():
         assert float(np.nanmean(off)) == pytest.approx(exp, abs=0.001)
     mat, _ = jm_matrix(df[["Blue", "Green", "Red"]].to_numpy(), y)
     assert count_buckets(mat) == {"Poor": 5, "Moderate": 7, "Good": 9, "Excellent": 0}
+
+
+def test_resolve_class_label_lookup_order():
+    from src.core import resolve_class_label
+    assert resolve_class_label(1, None) == "1"
+    assert resolve_class_label(1, {1: "Tree"}) == "Tree"
+    assert resolve_class_label(1, {"1": "Tree"}) == "Tree"      # JSON-flattened keys
+    assert resolve_class_label(2, {1: "Tree"}) == "2"
+    assert resolve_class_label("Road", {"Road": "Road"}) == "Road"

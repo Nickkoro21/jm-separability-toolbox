@@ -176,8 +176,14 @@ def _filter_df_by_classes(state: dict) -> pd.DataFrame:
     class_col = schema.get("class_col")
     selected = state.get("selected_class_ids") or []
     if class_col and class_col in df.columns and selected:
-        return df[df[class_col].isin(selected)].copy()
-    return df
+        df = df[df[class_col].isin(selected)]
+    # Exhaustive mode: same finite rows as the search (see Tab 5).
+    result = state.get("exhaustive_result")
+    if state.get("analysis_mode") == "exhaustive" and result is not None:
+        kept = getattr(result, "kept_index", None)
+        if kept is not None and len(kept) < len(df):
+            df = df.loc[df.index.intersection(kept)]
+    return df.copy()
 
 
 def _class_labels_mapping(state: dict) -> dict | None:

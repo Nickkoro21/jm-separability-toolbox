@@ -421,6 +421,9 @@ def _on_confirm(
     # Cascade-reset downstream
     for k in ("tab4_done", "tab5_done"):
         new_state[k] = False
+    new_state["exhaustive_result"] = None   # free a possibly large ranking
+    new_state["analysis_mode"] = "manual"
+    new_state["subsets"] = {}
 
     n_samples = report_dict.get("n_samples", 0)
     n_classes = len(report_dict.get("class_counts", {}) or {})
