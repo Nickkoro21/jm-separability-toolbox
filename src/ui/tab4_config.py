@@ -19,7 +19,17 @@ tab auto-populates from upstream state:
       Plus an ``All`` row when ≥ 4 bands are available, or as a fallback
       when none of the named heuristics matches (e.g. Sentinel-2).
 
-Validation rules (live, hard-error):
+Two analysis modes (radio):
+    * **Manual subsets** (default) — the user names band subsets in the
+      Dataframe described above; each becomes one JM matrix in Step 5.
+    * **Exhaustive search** — the user picks candidate bands (≤ MAX_BANDS)
+      and a minimum subset size k; on confirm, ``src.core.exhaustive``
+      evaluates *every* combination of ≥ k bands, stores the full ranking
+      in ``state['exhaustive_result']`` and auto-fills ``state['subsets']``
+      with the best combination at each k (``Best-3``, ``Best-4``, …) so
+      every downstream visualisation works unchanged.
+
+Validation rules (live, hard-error) — manual mode:
     1. ≥ 2 classes selected
     2. ≥ 1 subset row (after empty-row stripping)
     3. Subset names: non-empty, unique
@@ -27,6 +37,10 @@ Validation rules (live, hard-error):
     5. Each token in a subset's band list must match an available band
        (case- / whitespace- / dash- / underscore-insensitive). Unknown
        tokens are reported with a sample of the available band names.
+
+Exhaustive mode:
+    1. ≥ 2 classes selected
+    2. min_k ≤ number of candidate bands ≤ MAX_BANDS (20)
 
 Public API
 ----------
@@ -40,7 +54,8 @@ clear_state_updates() -> tuple
     Updates that reset every Tab 4 field to its default.
 
 Constants exposed for re-use:
-    ``DEFAULT_BANDS_HINT``, ``DEFAULT_VALIDATION``, ``DEFAULT_STATUS``.
+    ``DEFAULT_BANDS_HINT``, ``DEFAULT_VALIDATION``, ``DEFAULT_STATUS``,
+    ``MODE_MANUAL``, ``MODE_EXHAUSTIVE``, ``POPULATE_COUNT``.
 """
 
 from __future__ import annotations
@@ -50,6 +65,14 @@ from typing import Any
 
 import gradio as gr
 import pandas as pd
+
+from src.core import (
+    DEFAULT_MIN_K,
+    MAX_BANDS,
+    count_combinations,
+    exhaustive_search,
+)
+from src.ui.tab5_results import MAX_SUBSETS
 
 
 # ─── Colour tokens (aligned with Tabs 2 + 3) ──────────────────────────────────
@@ -73,6 +96,18 @@ DEFAULT_VALIDATION: str = (
 
 DEFAULT_STATUS: str = ""
 
+#: Radio labels for the analysis mode.
+MODE_MANUAL: str = "Manual subsets"
+MODE_EXHAUSTIVE: str = "Exhaustive search (all band combinations)"
+MODE_CHOICES: tuple[str, str] = (MODE_MANUAL, MODE_EXHAUSTIVE)
+
+#: Rough per-combination cost used only for the on-screen time estimate.
+_SECONDS_PER_COMBO: float = 60e-6
+
+#: Number of widgets filled by :func:`populate_state_updates` /
+#: :func:`clear_state_updates` (app.py wires exactly this many outputs).
+POPULATE_COUNT: int = 12
+
 
 # ─── Normalisation (mirrors detection._norm — kept local to avoid leaking
 #     a private symbol from a sibling package) ──────────────────────────────
@@ -95,13 +130,23 @@ def _suggest_default_subsets(available_bands: list[str]) -> list[list[str]]:
     for b in available_bands:
         norm_to_orig.setdefault(_norm(b), b)
 
+    def _prefix(key: str) -> str | None:
+        """Exact match first, then the first band whose name starts with
+        ``key`` — so ``nDSM_m`` / ``Thermal_C`` (unit suffixes) match."""
+        if key in norm_to_orig:
+            return norm_to_orig[key]
+        for nb, orig in norm_to_orig.items():
+            if nb.startswith(key):
+                return orig
+        return None
+
     blue    = norm_to_orig.get("blue")
     green   = norm_to_orig.get("green")
     red     = norm_to_orig.get("red")
     re_band = norm_to_orig.get("rededge")
     nir     = norm_to_orig.get("nir")
-    ndsm    = norm_to_orig.get("ndsm")
-    thermal = norm_to_orig.get("thermal")
+    ndsm    = _prefix("ndsm")
+    thermal = _prefix("thermal")
 
     rows: list[list[str]] = []
 
@@ -130,6 +175,78 @@ def _suggest_default_subsets(available_bands: list[str]) -> list[list[str]]:
         rows.append(["All", ", ".join(available_bands)])
 
     return rows
+
+
+# ─── Exhaustive-mode helpers ──────────────────────────────────────────────────
+
+def _format_combo_estimate(n_bands: int, min_k: int) -> str:
+    """Info line: number of combinations + rough runtime for the search."""
+    if n_bands < 2:
+        return (
+            f"<span style='color:{_C_INFO};'>ℹ️ Select at least "
+            f"{max(2, min_k)} candidate bands.</span>"
+        )
+    if n_bands > MAX_BANDS:
+        return (
+            f"<span style='color:{_C_ERR};'>❌ {n_bands} candidate bands "
+            f"exceed the limit of {MAX_BANDS}. Deselect "
+            f"{n_bands - MAX_BANDS} band(s).</span>"
+        )
+    if min_k > n_bands:
+        return (
+            f"<span style='color:{_C_ERR};'>❌ Minimum subset size k = "
+            f"{min_k} exceeds the {n_bands} candidate bands.</span>"
+        )
+    n_combos = count_combinations(n_bands, min_k)
+    est = n_combos * _SECONDS_PER_COMBO
+    if est < 1:
+        est_txt = "under a second"
+    elif est < 90:
+        est_txt = f"≈ {est:.0f} s"
+    else:
+        est_txt = f"≈ {est / 60:.1f} min"
+    color = _C_WARN if n_combos > 100_000 else _C_BLUE
+    return (
+        f"<span style='color:{color};'>🔎 <b>{n_combos:,}</b> combinations "
+        f"of {min_k}…{n_bands} bands will be evaluated "
+        f"({est_txt}).</span>"
+    )
+
+
+def _validate_exhaustive(
+    class_selection: list | None,
+    candidate_bands: list[str] | None,
+    min_k: Any,
+) -> tuple[bool, str]:
+    """Validate the exhaustive-mode inputs. Returns ``(ok, message)``."""
+    n_classes = len(class_selection or [])
+    if n_classes < 2:
+        return False, f"❌ Need at least 2 classes selected (got {n_classes})."
+    bands = list(candidate_bands or [])
+    try:
+        k = int(min_k)
+    except (TypeError, ValueError):
+        k = DEFAULT_MIN_K
+    if len(bands) < 2:
+        return False, "❌ Select at least 2 candidate bands."
+    if len(bands) > MAX_BANDS:
+        return (
+            False,
+            f"❌ {len(bands)} candidate bands exceed the limit of "
+            f"{MAX_BANDS}. Deselect {len(bands) - MAX_BANDS} band(s).",
+        )
+    if k > len(bands):
+        return (
+            False,
+            f"❌ Minimum subset size k = {k} exceeds the {len(bands)} "
+            f"candidate bands.",
+        )
+    n_combos = count_combinations(len(bands), k)
+    return (
+        True,
+        f"✓ Exhaustive search · {n_classes} classes · {len(bands)} bands · "
+        f"{n_combos:,} combinations (k ≥ {k})",
+    )
 
 
 # ─── Live validation ──────────────────────────────────────────────────────────
@@ -297,7 +414,7 @@ def _format_bands_hint(available_bands: list[str]) -> str:
         f"(case-insensitive, comma-separated):</span><br/>"
         f"<code style='font-size:0.95em;'>"
         + ", ".join(available_bands)
-        + f"</code></div>"
+        + "</code></div>"
     )
 
 
@@ -351,39 +468,144 @@ def _class_choices_from_state(state: dict) -> list[tuple[str, Any]]:
 # ─── Event handlers ───────────────────────────────────────────────────────────
 
 def _on_live_validate(
+    mode: str | None,
     class_selection: list | None,
     subset_rows: Any,
+    candidate_bands: list[str] | None,
+    min_k: Any,
     state: dict,
 ):
     """Live validation feedback while editing — does NOT mutate shared state.
 
     Outputs (2): validation_status, confirm_btn
     """
-    available = _available_bands_from_state(state)
-    ok, msg, _ = _validate(class_selection, subset_rows, available)
+    if mode == MODE_EXHAUSTIVE:
+        ok, msg = _validate_exhaustive(class_selection, candidate_bands, min_k)
+    else:
+        available = _available_bands_from_state(state)
+        ok, msg, _ = _validate(class_selection, subset_rows, available)
     return (
         gr.update(value=_format_validation_md(ok, msg)),
         gr.update(interactive=ok),
     )
 
 
-def _on_confirm(
+def _on_mode_change(
+    mode: str | None,
     class_selection: list | None,
     subset_rows: Any,
+    candidate_bands: list[str] | None,
+    min_k: Any,
     state: dict,
+):
+    """Toggle manual / exhaustive widget groups and re-validate.
+
+    Outputs (4): manual_group, exhaustive_group, validation_status,
+    confirm_btn
+    """
+    is_exh = mode == MODE_EXHAUSTIVE
+    status, btn = _on_live_validate(
+        mode, class_selection, subset_rows, candidate_bands, min_k, state,
+    )
+    return (
+        gr.update(visible=not is_exh),
+        gr.update(visible=is_exh),
+        status,
+        btn,
+    )
+
+
+def _on_exhaustive_inputs_change(
+    candidate_bands: list[str] | None,
+    min_k: Any,
+):
+    """Refresh the combination-count estimate. Outputs (1): exh_estimate."""
+    try:
+        k = int(min_k)
+    except (TypeError, ValueError):
+        k = DEFAULT_MIN_K
+    return gr.update(value=_format_combo_estimate(len(candidate_bands or []), k))
+
+
+def _run_exhaustive(
+    state: dict,
+    class_selection: list,
+    candidate_bands: list[str],
+    min_k: int,
+    progress: gr.Progress | None,
+):
+    """Run the exhaustive search on the class-filtered data.
+
+    Returns ``(result, error_message)``; exactly one of them is ``None``.
+    """
+    df = state.get("df")
+    schema = state.get("detected_schema") or {}
+    class_col = schema.get("class_col")
+    if df is None or not class_col or class_col not in df.columns:
+        return None, "❌ Data or class column missing — re-run Step 3."
+    sub = df[df[class_col].isin(class_selection)]
+    label_map = schema.get("class_label_mapping") or None
+
+    def _cb(frac: float, msg: str) -> None:
+        if progress is not None:
+            progress(frac, desc=f"Exhaustive JM search — {msg}")
+
+    try:
+        result = exhaustive_search(
+            sub, class_col, candidate_bands,
+            min_k=min_k, class_labels=label_map, progress=_cb,
+        )
+    except ValueError as exc:
+        return None, f"❌ Exhaustive search failed: {exc}"
+    return result, None
+
+
+def _on_confirm(
+    mode: str | None,
+    class_selection: list | None,
+    subset_rows: Any,
+    candidate_bands: list[str] | None,
+    min_k: Any,
+    state: dict,
+    progress: gr.Progress = gr.Progress(),
 ):
     """Persist confirmed config to shared state, cascade-reset Tab 5.
 
+    In exhaustive mode this also runs the search (with a progress bar) and
+    derives the ``Best-k`` subsets from its result.
+
     Outputs (2): state, status
     """
-    available = _available_bands_from_state(state)
-    ok, msg, parsed_subsets = _validate(
-        class_selection, subset_rows, available
-    )
-    if not ok or parsed_subsets is None:
-        return state, gr.update(
-            value=f"<span style='color:{_C_ERR};'>{msg}</span>"
+    is_exh = mode == MODE_EXHAUSTIVE
+    exhaustive_result = None
+    parsed_subsets: dict[str, list[str]] | None = None
+
+    if is_exh:
+        ok, msg = _validate_exhaustive(class_selection, candidate_bands, min_k)
+        if not ok:
+            return state, gr.update(
+                value=f"<span style='color:{_C_ERR};'>{msg}</span>"
+            )
+        exhaustive_result, err = _run_exhaustive(
+            state, list(class_selection or []), list(candidate_bands or []),
+            int(min_k), progress,
         )
+        if err is not None or exhaustive_result is None:
+            return state, gr.update(
+                value=f"<span style='color:{_C_ERR};'>{err}</span>"
+            )
+        parsed_subsets = exhaustive_result.subsets_for_tab5(
+            max_subsets=MAX_SUBSETS,
+        )
+    else:
+        available = _available_bands_from_state(state)
+        ok, msg, parsed_subsets = _validate(
+            class_selection, subset_rows, available
+        )
+        if not ok or parsed_subsets is None:
+            return state, gr.update(
+                value=f"<span style='color:{_C_ERR};'>{msg}</span>"
+            )
 
     # Build display labels for the confirmation summary
     schema    = state.get("detected_schema") or {}
@@ -397,17 +619,31 @@ def _on_confirm(
     new_state["selected_classes"]    = display_classes
     new_state["selected_class_ids"]  = list(class_selection or [])
     new_state["subsets"]              = parsed_subsets
+    new_state["analysis_mode"]        = "exhaustive" if is_exh else "manual"
+    new_state["exhaustive_result"]    = exhaustive_result
     new_state["tab4_done"]            = True
     new_state["tab5_done"]            = False  # cascade
 
     n_classes = len(display_classes)
     n_subsets = len(parsed_subsets)
-    summary = (
-        f"<span style='color:{_C_OK};'>"
-        f"✅ <b>Configuration confirmed.</b> "
-        f"{n_subsets} subset{'s' if n_subsets != 1 else ''} · "
-        f"{n_classes} classes. Proceed to <b>Step 5</b> for results.</span>"
-    )
+    if is_exh and exhaustive_result is not None:
+        r = exhaustive_result
+        summary = (
+            f"<span style='color:{_C_OK};'>"
+            f"✅ <b>Exhaustive search complete.</b> "
+            f"{r.n_combinations:,} combinations of {r.min_k}…{r.max_k} bands "
+            f"evaluated in {r.elapsed_s:.1f} s · {n_classes} classes. "
+            f"The best combination at each size was added as a subset "
+            f"(<code>{'</code>, <code>'.join(parsed_subsets)}</code>). "
+            f"Proceed to <b>Step 5</b> for the full ranking.</span>"
+        )
+    else:
+        summary = (
+            f"<span style='color:{_C_OK};'>"
+            f"✅ <b>Configuration confirmed.</b> "
+            f"{n_subsets} subset{'s' if n_subsets != 1 else ''} · "
+            f"{n_classes} classes. Proceed to <b>Step 5</b> for results.</span>"
+        )
     return new_state, gr.update(value=summary)
 
 
@@ -418,8 +654,10 @@ def populate_state_updates(state: dict) -> tuple:
 
     Used by ``_on_tab3_confirm_chain`` in app.py.
 
-    Outputs (6) in this exact order:
+    Outputs (``POPULATE_COUNT`` = 12) in this exact order:
+        mode_radio, manual_group, exhaustive_group,
         class_checkbox, detected_bands_hint, subset_df,
+        exh_bands, exh_min_k, exh_estimate,
         validation_status, confirm_btn, status
     """
     available = _available_bands_from_state(state)
@@ -430,7 +668,16 @@ def populate_state_updates(state: dict) -> tuple:
     # Live-validate the defaults so user sees the green status immediately
     ok, msg, _ = _validate(default_classes, default_subsets, available)
 
+    # Exhaustive defaults: every available band (capped at MAX_BANDS),
+    # k from DEFAULT_MIN_K up to the number of candidates.
+    exh_default = list(available[:MAX_BANDS])
+    n_exh = len(exh_default)
+    min_k_default = min(DEFAULT_MIN_K, max(2, n_exh))
+
     return (
+        gr.update(value=MODE_MANUAL),
+        gr.update(visible=True),
+        gr.update(visible=False),
         gr.update(
             choices=choices,
             value=default_classes,
@@ -438,6 +685,12 @@ def populate_state_updates(state: dict) -> tuple:
         ),
         gr.update(value=_format_bands_hint(available)),
         gr.update(value=default_subsets),
+        gr.update(choices=list(available), value=exh_default, interactive=True),
+        gr.update(
+            minimum=2, maximum=max(2, n_exh), value=min_k_default, step=1,
+            interactive=True,
+        ),
+        gr.update(value=_format_combo_estimate(n_exh, min_k_default)),
         gr.update(value=_format_validation_md(ok, msg)),
         gr.update(interactive=ok),
         gr.update(value=DEFAULT_STATUS),
@@ -447,14 +700,22 @@ def populate_state_updates(state: dict) -> tuple:
 def clear_state_updates() -> tuple:
     """Reset every Tab 4 widget back to its default (cascade-reset).
 
-    Outputs (6) in this exact order:
+    Outputs (``POPULATE_COUNT`` = 12) in this exact order:
+        mode_radio, manual_group, exhaustive_group,
         class_checkbox, detected_bands_hint, subset_df,
+        exh_bands, exh_min_k, exh_estimate,
         validation_status, confirm_btn, status
     """
     return (
+        gr.update(value=MODE_MANUAL),
+        gr.update(visible=True),
+        gr.update(visible=False),
         gr.update(choices=[], value=[], interactive=False),
         gr.update(value=DEFAULT_BANDS_HINT),
         gr.update(value=[]),
+        gr.update(choices=[], value=[], interactive=False),
+        gr.update(minimum=2, maximum=MAX_BANDS, value=DEFAULT_MIN_K, step=1),
+        gr.update(value=""),
         gr.update(value=DEFAULT_VALIDATION),
         gr.update(interactive=False),
         gr.update(value=DEFAULT_STATUS),
@@ -516,20 +777,52 @@ def build(state: gr.State) -> dict:
         )
 
         gr.Markdown("#### 🎚️ Band subsets")
-        detected_bands_hint = gr.Markdown(value=DEFAULT_BANDS_HINT)
-
-        subset_df = gr.Dataframe(
-            headers=["Subset name", "Bands (comma-separated)"],
-            datatype=["str", "str"],
-            row_count=(1, "dynamic"),
-            col_count=(2, "fixed"),
-            interactive=True,
-            label=(
-                "📊 Subset definitions — one row per JM matrix to be "
-                "computed. Use the row controls to add / remove rows."
+        mode_radio = gr.Radio(
+            choices=list(MODE_CHOICES),
+            value=MODE_MANUAL,
+            label="Analysis mode",
+            info=(
+                "Manual: you name the subsets. Exhaustive: every "
+                f"combination of ≥ k bands is evaluated (max {MAX_BANDS} "
+                "candidate bands) and ranked by JM separability."
             ),
-            wrap=True,
+            interactive=True,
         )
+
+        with gr.Group(visible=True) as manual_group:
+            detected_bands_hint = gr.Markdown(value=DEFAULT_BANDS_HINT)
+
+            subset_df = gr.Dataframe(
+                headers=["Subset name", "Bands (comma-separated)"],
+                datatype=["str", "str"],
+                row_count=(1, "dynamic"),
+                col_count=(2, "fixed"),
+                interactive=True,
+                label=(
+                    "📊 Subset definitions — one row per JM matrix to be "
+                    "computed. Use the row controls to add / remove rows."
+                ),
+                wrap=True,
+            )
+
+        with gr.Group(visible=False) as exhaustive_group:
+            exh_bands = gr.CheckboxGroup(
+                label="Candidate bands",
+                info=(
+                    f"Every combination of these bands is evaluated. "
+                    f"Limit: {MAX_BANDS} bands."
+                ),
+                choices=[],
+                value=[],
+                interactive=False,
+            )
+            exh_min_k = gr.Slider(
+                minimum=2, maximum=MAX_BANDS, value=DEFAULT_MIN_K, step=1,
+                label="Minimum subset size (k)",
+                info="Combinations smaller than k bands are skipped.",
+                interactive=True,
+            )
+            exh_estimate = gr.Markdown(value="")
 
         validation_status = gr.Markdown(value=DEFAULT_VALIDATION)
 
@@ -546,30 +839,70 @@ def build(state: gr.State) -> dict:
     # ── Internal event wiring ──
     # Live re-validation on either input change. Both inputs are sent to
     # the same handler; the shared state is read-only so no mutation risk.
-    class_checkbox.change(
-        fn=_on_live_validate,
-        inputs=[class_checkbox, subset_df, state],
-        outputs=[validation_status, confirm_btn],
-    )
-    subset_df.change(
-        fn=_on_live_validate,
-        inputs=[class_checkbox, subset_df, state],
-        outputs=[validation_status, confirm_btn],
+    live_inputs = [
+        mode_radio, class_checkbox, subset_df, exh_bands, exh_min_k, state,
+    ]
+    for widget in (class_checkbox, subset_df, exh_bands, exh_min_k):
+        widget.change(
+            fn=_on_live_validate,
+            inputs=live_inputs,
+            outputs=[validation_status, confirm_btn],
+        )
+    for widget in (exh_bands, exh_min_k):
+        widget.change(
+            fn=_on_exhaustive_inputs_change,
+            inputs=[exh_bands, exh_min_k],
+            outputs=[exh_estimate],
+        )
+    mode_radio.change(
+        fn=_on_mode_change,
+        inputs=live_inputs,
+        outputs=[manual_group, exhaustive_group, validation_status, confirm_btn],
     )
 
     confirm_btn.click(
         fn=_on_confirm,
-        inputs=[class_checkbox, subset_df, state],
+        inputs=[
+            mode_radio, class_checkbox, subset_df, exh_bands, exh_min_k, state,
+        ],
         outputs=[state, status],
     )
 
     return {
         "lock_msg":            lock_msg,
         "content":             content,
+        "mode_radio":          mode_radio,
+        "manual_group":        manual_group,
+        "exhaustive_group":    exhaustive_group,
         "class_checkbox":      class_checkbox,
         "detected_bands_hint": detected_bands_hint,
         "subset_df":           subset_df,
+        "exh_bands":           exh_bands,
+        "exh_min_k":           exh_min_k,
+        "exh_estimate":        exh_estimate,
         "validation_status":   validation_status,
         "confirm_btn":         confirm_btn,
         "status":              status,
     }
+
+
+def populate_refs(refs: dict) -> list:
+    """Widgets in the order of :func:`populate_state_updates` (12 items).
+
+    ``app.py`` passes this list as the Tab 3 → Tab 4 chain outputs so the
+    ordering is defined in exactly one place.
+    """
+    return [
+        refs["mode_radio"],
+        refs["manual_group"],
+        refs["exhaustive_group"],
+        refs["class_checkbox"],
+        refs["detected_bands_hint"],
+        refs["subset_df"],
+        refs["exh_bands"],
+        refs["exh_min_k"],
+        refs["exh_estimate"],
+        refs["validation_status"],
+        refs["confirm_btn"],
+        refs["status"],
+    ]

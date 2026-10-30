@@ -191,6 +191,8 @@ def _initial_state() -> dict:
         "subsets":             {},
         "selected_classes":    [],
         "selected_class_ids":  [],
+        "analysis_mode":       "manual",   # "manual" | "exhaustive"
+        "exhaustive_result":   None,       # src.core.ExhaustiveResult
         "tab4_done":    False,
         # ── Tab 5 outputs ──
         "jm_results":   {},
@@ -234,10 +236,10 @@ def _placeholder_tab(step_num: int, title: str, description: str) -> None:
 #       tab5.lock_msg, tab5.content,                       (relock Tab 5)
 #       tab6.lock_msg, tab6.content,                       (relock Tab 6)
 #
-#   _on_tab3_confirm_chain  → 18 outputs
+#   _on_tab3_confirm_chain  → 24 outputs
 #       tabs, tab1_view..tab5_view,
 #       tab4.lock_msg, tab4.content,                       (unlock Tab 4)
-#       *tab4_config.populate_state_updates(state),        (6 populated)
+#       *tab4_config.populate_state_updates(state),        (12 populated)
 #       tab5.lock_msg, tab5.content,                       (relock Tab 5)
 #       tab6.lock_msg, tab6.content,                       (relock Tab 6)
 #
@@ -302,14 +304,14 @@ def _on_tab2_confirm_chain(state: dict):
 def _on_tab3_confirm_chain(state: dict):
     """After Tab 3 confirm: switch to Tab 4, unlock + populate it, relock Tabs 5+6."""
     if not state.get("tab3_done"):
-        return tuple(gr.update() for _ in range(18))
+        return tuple(gr.update() for _ in range(12 + tab4_config.POPULATE_COUNT))
 
     return (
         gr.update(selected=4),                        # tabs → Tab 4
         *_label_updates(completed_through=3),
         gr.update(visible=False),                     # tab4 lock_msg → unlock
         gr.update(visible=True),                      # tab4 content  → unlock
-        *tab4_config.populate_state_updates(state),   # 6 populated values
+        *tab4_config.populate_state_updates(state),   # 12 populated values
         gr.update(visible=True),                      # tab5 lock_msg → relock
         gr.update(visible=False),                     # tab5 content  → relock
         gr.update(visible=True),                      # tab6 lock_msg → relock
@@ -391,13 +393,18 @@ def build_app() -> gr.Blocks:
             with gr.Tab(_LABELS_PENDING[5], id=5) as tab5_view:
                 tab5_refs = tab5_results.build(session_state)
 
-            with gr.Tab(_LABELS_PENDING[6], id=6) as tab6_view:
+            with gr.Tab(_LABELS_PENDING[6], id=6):
                 tab6_refs = tab6_export.build(session_state)
 
         # Group tab view refs for compact wiring
         tab_views = (tab1_view, tab2_view, tab3_view, tab4_view, tab5_view)
 
-        # Pre-compute Tab 5 populate-output ordering (used by Tab 4 chain).
+        # Pre-compute populate-output orderings (used by the chain handlers).
+        tab4_populate_widgets = tab4_config.populate_refs(tab4_refs)
+        assert len(tab4_populate_widgets) == tab4_config.POPULATE_COUNT, (
+            f"Tab 4 populate ordering returned {len(tab4_populate_widgets)} "
+            f"widgets, expected {tab4_config.POPULATE_COUNT}."
+        )
         tab5_populate_widgets = tab5_results.populate_refs(tab5_refs)
 
         # Defensive: fail fast if the populate ordering and the constant
@@ -472,12 +479,7 @@ def build_app() -> gr.Blocks:
                 tab4_refs["lock_msg"],
                 tab4_refs["content"],
                 # Order MUST match tab4_config.populate_state_updates():
-                tab4_refs["class_checkbox"],
-                tab4_refs["detected_bands_hint"],
-                tab4_refs["subset_df"],
-                tab4_refs["validation_status"],
-                tab4_refs["confirm_btn"],
-                tab4_refs["status"],
+                *tab4_populate_widgets,
                 tab5_refs["lock_msg"],
                 tab5_refs["content"],
                 tab6_refs["lock_msg"],

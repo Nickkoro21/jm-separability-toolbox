@@ -67,6 +67,16 @@ from .detection import (
     suggest_class_label_mapping,
 )
 
+from .exhaustive import (
+    BAND_SEP,
+    DEFAULT_MIN_K,
+    MAX_BANDS,
+    RANKING_COLUMNS,
+    ExhaustiveResult,
+    count_combinations,
+    exhaustive_search,
+)
+
 from .band_classification import (
     CATEGORY_DISPLAY,
     CATEGORY_HEIGHT,
@@ -129,6 +139,14 @@ __all__ = [
     "detect_non_spectral_columns",
     "detect_xy_columns",
     "suggest_class_label_mapping",
+    # ── exhaustive ────────────────────────────────────────────────────────
+    "BAND_SEP",
+    "DEFAULT_MIN_K",
+    "MAX_BANDS",
+    "RANKING_COLUMNS",
+    "ExhaustiveResult",
+    "count_combinations",
+    "exhaustive_search",
     # ── band_classification ───────────────────────────────────────────────
     "CATEGORY_DISPLAY",
     "CATEGORY_HEIGHT",
