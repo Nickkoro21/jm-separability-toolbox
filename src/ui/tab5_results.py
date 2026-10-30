@@ -7,10 +7,13 @@ Locked until Tab 4 (class filter + band subsets) is confirmed. On unlock,
 the tab auto-populates by computing all 9 plot/data outputs from the
 ``src.viz`` package and rendering them in 6 collapsible accordions:
 
+    0. 🔍 Exhaustive Band Ranking ── only in exhaustive mode (Tab 4):
+                                     summary, JM-vs-k gain plot, best-per-k
+                                     tables (mean / min criteria), top-25
     1. 📊 Subset Summary          ── summary table + comparative bar +
                                      bucket distribution
-    2. 🔥 JM Distance Matrices    ── one heatmap per subset (max 8)
-    3. 🥇 Ranked Class Pairs      ── DataFrame + bar per subset (max 8)
+    2. 🔥 JM Distance Matrices    ── one heatmap per subset (max 10)
+    3. 🥇 Ranked Class Pairs      ── DataFrame + bar per subset (max 10)
     4. 📈 Spectral Signatures     ── combined overlay + per-class faceted
     5. 📦 Boxplots                ── per-band, classes side-by-side
     6. 🎻 Violin Plots            ── per-band, classes side-by-side
@@ -63,6 +66,13 @@ from src.core import (
 )
 from src.viz import generate_class_palette
 from src.viz.boxplots import make_boxplots
+from src.viz.exhaustive_plots import (
+    DISPLAY_DATATYPES,
+    DISPLAY_HEADERS,
+    format_exhaustive_summary_md,
+    format_ranking_table,
+    make_exhaustive_gain_plot,
+)
 from src.viz.jm_comparative import (
     compute_subset_summary,
     make_jm_bucket_distribution,
@@ -80,7 +90,10 @@ from src.viz.violins import make_violins
 #: keeping this finite avoids unbounded layout costs. Tab 4 does not enforce
 #: this limit today; if the user defines >MAX_SUBSETS, the extras are
 #: silently dropped from the visualisation.
-MAX_SUBSETS: int = 8
+MAX_SUBSETS: int = 10
+
+#: Rows shown in the "global top" table of the exhaustive accordion.
+EXHAUSTIVE_TOP_N: int = 25
 
 DEFAULT_STATUS: str = ""
 
@@ -94,6 +107,7 @@ _C_BLUE  = "#60a5fa"
 
 # ─── Empty-state defaults ─────────────────────────────────────────────────
 _EMPTY_RANKED_DF = pd.DataFrame(columns=["class_a", "class_b", "jm", "bucket"])
+_EMPTY_EXH_DF = pd.DataFrame(columns=list(DISPLAY_HEADERS))
 _EMPTY_SUMMARY_DF = pd.DataFrame(columns=[
     "subset_name", "n_bands", "n_pairs",
     "mean_jm", "min_jm", "max_jm", "std_jm",
@@ -233,6 +247,50 @@ def build(state: gr.State) -> dict:
             """,
         )
 
+        # ── 0) Exhaustive Band Ranking (exhaustive mode only) ───────────
+        with gr.Group(visible=False) as exhaustive_group:
+            with gr.Accordion("🔍 Exhaustive Band Ranking", open=True):
+                exh_summary_md = gr.Markdown(value="")
+                exh_gain_plot = gr.Plot(
+                    label="Separability vs number of bands",
+                )
+                gr.Markdown(
+                    f"<span style='color:{_C_INFO};'>Best combination at "
+                    f"each subset size — ranked by <b>mean JM</b> "
+                    f"(tie-break: min JM).</span>",
+                )
+                exh_best_mean_df = gr.Dataframe(
+                    headers=list(DISPLAY_HEADERS),
+                    datatype=list(DISPLAY_DATATYPES),
+                    row_count=(0, "dynamic"),
+                    col_count=(len(DISPLAY_HEADERS), "fixed"),
+                    interactive=False, wrap=True, value=_EMPTY_EXH_DF,
+                )
+                gr.Markdown(
+                    f"<span style='color:{_C_INFO};'>Best combination at "
+                    f"each subset size — ranked by <b>worst-pair (min) JM</b> "
+                    f"(tie-break: mean JM).</span>",
+                )
+                exh_best_min_df = gr.Dataframe(
+                    headers=list(DISPLAY_HEADERS),
+                    datatype=list(DISPLAY_DATATYPES),
+                    row_count=(0, "dynamic"),
+                    col_count=(len(DISPLAY_HEADERS), "fixed"),
+                    interactive=False, wrap=True, value=_EMPTY_EXH_DF,
+                )
+                gr.Markdown(
+                    f"<span style='color:{_C_INFO};'>Global top "
+                    f"{EXHAUSTIVE_TOP_N} combinations by mean JM. The full "
+                    f"ranking is included in the Step 6 export.</span>",
+                )
+                exh_top_df = gr.Dataframe(
+                    headers=list(DISPLAY_HEADERS),
+                    datatype=list(DISPLAY_DATATYPES),
+                    row_count=(0, "dynamic"),
+                    col_count=(len(DISPLAY_HEADERS), "fixed"),
+                    interactive=False, wrap=True, value=_EMPTY_EXH_DF,
+                )
+
         # ── 1) Subset Summary ────────────────────────────────────────────
         with gr.Accordion("📊 Subset Summary", open=True):
             gr.Markdown(
@@ -364,6 +422,12 @@ def build(state: gr.State) -> dict:
         "confirm_btn":              confirm_btn,
         "status":                   status,
         # Section refs (used by populate_refs in deterministic order)
+        "exhaustive_group":         exhaustive_group,
+        "exh_summary_md":           exh_summary_md,
+        "exh_gain_plot":            exh_gain_plot,
+        "exh_best_mean_df":         exh_best_mean_df,
+        "exh_best_min_df":          exh_best_min_df,
+        "exh_top_df":               exh_top_df,
         "summary_table":            summary_table,
         "comparative_bar_plot":     comparative_bar_plot,
         "bucket_distribution_plot": bucket_distribution_plot,
@@ -402,6 +466,12 @@ def populate_refs(refs: dict) -> list:
     and the chain handler keeps working.
     """
     out: list = []
+    out.append(refs["exhaustive_group"])
+    out.append(refs["exh_summary_md"])
+    out.append(refs["exh_gain_plot"])
+    out.append(refs["exh_best_mean_df"])
+    out.append(refs["exh_best_min_df"])
+    out.append(refs["exh_top_df"])
     out.append(refs["summary_table"])
     out.append(refs["comparative_bar_plot"])
     out.append(refs["bucket_distribution_plot"])
@@ -431,6 +501,8 @@ def clear_state_updates() -> tuple:
     on cascade-reset.
     """
     updates: list = []
+    # 0) Exhaustive accordion
+    updates.extend(_exhaustive_clear_updates())
     # 1) Subset Summary
     updates.append(gr.update(value=_EMPTY_SUMMARY_DF))
     updates.append(gr.update(value=None))
@@ -455,6 +527,35 @@ def clear_state_updates() -> tuple:
     updates.append(gr.update(interactive=False))
     updates.append(gr.update(value=DEFAULT_STATUS))
     return tuple(updates)
+
+
+def _exhaustive_clear_updates() -> list:
+    """Six updates that hide and empty the exhaustive accordion."""
+    return [
+        gr.update(visible=False),
+        gr.update(value=""),
+        gr.update(value=None),
+        gr.update(value=_EMPTY_EXH_DF),
+        gr.update(value=_EMPTY_EXH_DF),
+        gr.update(value=_EMPTY_EXH_DF),
+    ]
+
+
+def _exhaustive_populate_updates(state: dict) -> list:
+    """Six updates for the exhaustive accordion (hidden in manual mode)."""
+    result = state.get("exhaustive_result")
+    if state.get("analysis_mode") != "exhaustive" or result is None:
+        return _exhaustive_clear_updates()
+    return [
+        gr.update(visible=True),
+        gr.update(value=format_exhaustive_summary_md(result)),
+        gr.update(value=make_exhaustive_gain_plot(result)),
+        gr.update(value=format_ranking_table(result.best_per_k("mean"))),
+        gr.update(value=format_ranking_table(result.best_per_k("min"))),
+        gr.update(value=format_ranking_table(
+            result.top(EXHAUSTIVE_TOP_N, by="mean"),
+        )),
+    ]
 
 
 # ─── Public helper: populate updates (Pattern I) ──────────────────────────
@@ -489,6 +590,9 @@ def populate_state_updates(state: dict) -> tuple:
     )
 
     updates: list = []
+
+    # ── 0) Exhaustive Band Ranking ───────────────────────────────────────
+    updates.extend(_exhaustive_populate_updates(state))
 
     # ── 1) Subset Summary ────────────────────────────────────────────────
     summary_df = compute_subset_summary(df_filtered, class_col, subsets)
@@ -600,10 +704,17 @@ def populate_state_updates(state: dict) -> tuple:
         updates.append(gr.update(value=None))
 
     # ── Confirm + status ─────────────────────────────────────────────────
+    exh_note = ""
+    if state.get("analysis_mode") == "exhaustive" and state.get("exhaustive_result") is not None:
+        exh_note = (
+            f"Exhaustive ranking of "
+            f"<b>{state['exhaustive_result'].n_combinations:,}</b> "
+            f"combinations shown above. "
+        )
     updates.append(gr.update(interactive=True))
     updates.append(gr.update(value=(
         f"<span style='color:{_C_OK};'>"
-        f"✅ Computed <b>{len(subset_items)}</b> subset(s) · "
+        f"✅ {exh_note}Computed <b>{len(subset_items)}</b> subset(s) · "
         f"<b>{len(selected_class_ids)}</b> class(es) · "
         f"<b>{len(union_bands)}</b> unique band(s). "
         f"Click <b>Confirm</b> to proceed to Step 6.</span>"
@@ -618,5 +729,6 @@ __all__ = [
     "populate_state_updates",
     "populate_refs",
     "MAX_SUBSETS",
+    "EXHAUSTIVE_TOP_N",
     "DEFAULT_STATUS",
 ]

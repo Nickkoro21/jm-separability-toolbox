@@ -243,10 +243,10 @@ def _placeholder_tab(step_num: int, title: str, description: str) -> None:
 #       tab5.lock_msg, tab5.content,                       (relock Tab 5)
 #       tab6.lock_msg, tab6.content,                       (relock Tab 6)
 #
-#   _on_tab4_confirm_chain  → 75 outputs
+#   _on_tab4_confirm_chain  → 95 outputs
 #       tabs, tab1_view..tab5_view,
 #       tab5.lock_msg, tab5.content,                       (unlock Tab 5)
-#       *tab5_results.populate_state_updates(state)        (65 populated)
+#       *tab5_results.populate_state_updates(state)        (85 populated)
 #       tab6.lock_msg, tab6.content,                       (relock Tab 6)
 #
 #   _on_tab5_confirm_chain  → 10 outputs
@@ -255,7 +255,7 @@ def _placeholder_tab(step_num: int, title: str, description: str) -> None:
 #       *tab6_export.clear_state_updates()                 (2 fresh-state)
 
 
-_TAB5_POPULATE_COUNT = 65   # Must match len(tab5_results.populate_refs(refs))
+_TAB5_POPULATE_COUNT = 85   # Must match len(tab5_results.populate_refs(refs))
 
 
 def _on_tab1_confirm_chain(state: dict):
@@ -336,7 +336,7 @@ def _on_tab4_confirm_chain(state: dict):
         *_label_updates(completed_through=4),
         gr.update(visible=False),                       # tab5 lock_msg → unlock
         gr.update(visible=True),                        # tab5 content  → unlock
-        *tab5_results.populate_state_updates(state),    # 65 populated values
+        *tab5_results.populate_state_updates(state),    # 85 populated values
         gr.update(visible=True),                        # tab6 lock_msg → relock
         gr.update(visible=False),                       # tab6 content  → relock
     )
