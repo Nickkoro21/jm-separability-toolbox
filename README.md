@@ -41,6 +41,7 @@ short_description: Sensor-agnostic JM separability for multispectral data
 - **Boxplots** and **violin plots** per band (units-aware: reflectance, height in metres, temperature in °C)
 - **Jeffries–Matusita (JM) distance matrices** with discrete 4-bucket colour coding (Poor / Moderate / Good / Excellent)
 - **Comparative analysis** across band subsets (e.g. RGB vs 5MS vs 7D = RGB+RedEdge+NIR+nDSM+Thermal)
+- **Exhaustive band search**: evaluates *every* combination of 3 or more bands (up to 20 candidate bands) and ranks them by separability, so the tool tells you which bands you actually need
 - **Ranked separability table** for pair-by-pair drill-down
 - **ZIP export bundle** with your results as CSV plus an HTML interpretation guide
 
@@ -95,6 +96,52 @@ For numerical stability, a small regularization term (`1e-6 · I`) is added to e
 
 ---
 
+## Exhaustive band search
+
+Step 4 offers two analysis modes. In **Manual subsets** mode you name the band subsets yourself (the classic RGB / 5MS / 7D comparison). In **Exhaustive search** mode the app evaluates **every combination of k or more bands** drawn from the candidate bands you tick, and returns a ranked table. You no longer have to guess which subset to try.
+
+**What you get**
+
+| Output | Where |
+|---|---|
+| Separability-vs-k plot: one marker per combination, plus the frontier of the best mean JM and the best worst-pair JM at each k | Step 5, "Exhaustive Band Ranking" accordion |
+| Best combination at each subset size, under each of two criteria | Step 5 tables, `exhaustive_best_per_k_mean.csv`, `exhaustive_best_per_k_min.csv` |
+| Global top-25 | Step 5 table |
+| Full ranking of every combination (`rank_mean`, `rank_min`, mean / min / max JM, worst class pair, bucket counts) | `results/exhaustive_ranking.csv` in the Step 6 bundle |
+| JM heatmaps and ranked pairs for the best subset at each size (`Best-3`, `Best-4`, ...) | Step 5, auto-created subsets |
+
+**Two ranking criteria**
+
+- **Mean JM** over all class pairs is the primary key. It rewards subsets that separate *most* pairs well.
+- **Min JM** (the worst class pair) is the secondary key and drives the second table. It rewards subsets with no weak link, which is what you want when every class must be mapped reliably.
+
+Both are reported for every combination, so you can see when they disagree. On the bundled demo they agree from k = 4 upward and differ only for the smallest subsets:
+
+| k | Best by mean JM | mean | min | Best by min JM | mean | min |
+|:-:|---|:-:|:-:|---|:-:|:-:|
+| 3 | Red + NIR + nDSM | 1.607 | 0.856 | Green + NIR + nDSM | 1.552 | 1.029 |
+| 4 | Green + Red + NIR + nDSM | 1.718 | 1.245 | same | | |
+| 5 | Green + Red + NIR + nDSM + Thermal | 1.783 | 1.318 | same | | |
+| 6 | Blue + Green + Red + NIR + nDSM + Thermal | 1.816 | 1.340 | Green + Red + RedEdge + NIR + nDSM + Thermal | 1.811 | 1.346 |
+| 7 | all seven | 1.838 | 1.376 | same | | |
+
+Two things the thesis subsets could not show: the best 3-band set (1.607) already beats the 5-band multispectral set (1.551), and RedEdge is the first band the search drops. Road vs Bare Soil is the bottleneck pair at every size.
+
+**How it stays fast**
+
+Per-class mean vectors and covariance matrices are estimated once over all candidate bands. For any subset the restricted statistics are just the matching rows and columns, so nothing is re-fitted; results are identical to computing each subset on its own (asserted by the test suite). The Bhattacharyya distances are then evaluated in NumPy batches with a Cholesky factorisation per class pair. Typical cost is about 50 µs per combination:
+
+| Candidate bands | Combinations (k ≥ 3) | Typical runtime |
+|:-:|:-:|:-:|
+| 7 (MicaSense Altum-PT) | 99 | under a second |
+| 10 (RedEdge-MX Dual) | 968 | under a second |
+| 13 (Sentinel-2) | 8 100 | about half a second |
+| 20 (hard limit) | 1 048 365 | about a minute |
+
+The candidate-band limit is **20**. Above that the combinatorics explode (21 bands double the count again), so the app asks you to deselect bands or raise the minimum subset size k. A progress bar reports the search as it runs.
+
+---
+
 ## Six-step workflow
 
 ```mermaid
@@ -112,7 +159,7 @@ flowchart LR
     style F fill:#1e3a5f,stroke:#60a5fa,color:#fff
 ```
 
-Each tab unlocks only when the previous step is complete. Validation errors appear with clear messages — no silent failures.
+Each tab unlocks only when the previous step is complete. Validation errors appear with clear messages — no silent failures. Step 4 is where you choose between **Manual subsets** and **Exhaustive search** (see above).
 
 ---
 
@@ -173,6 +220,7 @@ The live app produces six visualization types in **Step 5** and one downloadable
 | **Comparative bar + bucket distribution** | Cross-subset comparison of mean JM and bucket-count breakdown |
 | **JM distance matrices** | One heatmap per subset, discrete 4-bucket colour scheme, masked diagonal |
 | **Ranked class pairs** | Sortable table + bar chart per subset, worst pairs first |
+| **Exhaustive band ranking** | *(exhaustive mode)* Separability-vs-k plot, best-per-k tables under both criteria, global top-25 |
 | **Spectral signatures** | All classes overlaid, mean reflectance only, x-axis ordered by wavelength |
 | **Boxplots & Violins per band** | Distribution shape, IQR, outliers; faceted by band with unit-aware Y axis (reflectance / metres / °C) |
 
@@ -185,7 +233,10 @@ jm_export_<timestamp>.zip
 ├── README.txt                          — sensor + subsets + classes + how-to-use
 ├── results/
 │   ├── subset_summary.csv             — your per-subset JM stats
-│   └── ranked_pairs_<subset>.csv      — worst-first pair ranking, one CSV per subset
+│   ├── ranked_pairs_<subset>.csv      — worst-first pair ranking, one CSV per subset
+│   ├── exhaustive_ranking.csv         — (exhaustive mode) every combination, ranked
+│   ├── exhaustive_best_per_k_mean.csv — (exhaustive mode) best subset per size, by mean JM
+│   └── exhaustive_best_per_k_min.csv  — (exhaustive mode) best subset per size, by worst pair
 └── example_guide.html                 — interactive interpretation guide
 ```
 
@@ -209,6 +260,13 @@ python app.py
 
 The Gradio interface opens at `http://localhost:7860`.
 
+To run the test suite (core JM math and the exhaustive search, 24 tests):
+
+```bash
+pip install pytest
+pytest
+```
+
 ---
 
 ## Project structure
@@ -223,6 +281,7 @@ jm-separability-toolbox/
 ├── src/
 │   ├── core/
 │   │   ├── jm.py                JM math: Bhattacharyya, regularised covariance, 4-bucket scheme
+│   │   ├── exhaustive.py        Exhaustive band-combination search (batched, Cholesky), two ranking criteria
 │   │   ├── presets.py           Camera band metadata + verification URLs (8 sensors)
 │   │   ├── validation.py        Hard-error and soft-warning checks (min 100 samples/class, ...)
 │   │   ├── detection.py         Auto-detection of class column, spectral / non-spectral bands, x/y
@@ -231,7 +290,7 @@ jm-separability-toolbox/
 │   │   ├── tab1_camera.py       Step 1 — sensor selection from 8 presets or custom
 │   │   ├── tab2_wavelengths.py  Step 2 — confirm or override centre wavelengths
 │   │   ├── tab3_upload.py       Step 3 — CSV upload, schema detection, validation
-│   │   ├── tab4_config.py       Step 4 — class filter and band-subset definition
+│   │   ├── tab4_config.py       Step 4 — class filter; manual subsets or exhaustive search
 │   │   ├── tab5_results.py      Step 5 — 6 collapsible accordions, all viz auto-computed
 │   │   └── tab6_export.py       Step 6 — ZIP export with results CSV + HTML interpretation guide
 │   └── viz/
@@ -240,13 +299,16 @@ jm-separability-toolbox/
 │       ├── violins.py            Per-band KDE shape with inner mini-boxplot
 │       ├── jm_matrix.py          Discrete 4-bucket heatmap, masked diagonal
 │       ├── jm_comparative.py     Subset summary + comparative bar + bucket distribution
+│       ├── exhaustive_plots.py   Separability-vs-k gain plot + ranking tables for the exhaustive search
 │       └── ranked_pairs.py       Worst-first sortable ranking per subset
 ├── data/
 │   ├── examples/
 │   │   └── spectral_samples.csv      Demo dataset (MicaSense Altum-PT, 6 997 samples × 7 bands × 7 classes)
 │   └── media/                    14 thesis figures (spectral profiles, separability matrices, etc.)
-├── docs/                                GitHub Pages source
-└── tests/                               Unit tests for core math and validation
+├── docs/                                GitHub Pages source (Jekyll, Cayman theme)
+└── tests/
+    ├── test_jm.py                       Core JM math, thresholds, demo-dataset regression
+    └── test_exhaustive.py               Exhaustive search vs per-subset jm_matrix, ranking, guards
 ```
 
 ---
@@ -262,9 +324,12 @@ jm-separability-toolbox/
 - [x] CSV results + HTML interpretation guide ZIP export
 - [x] Demo dataset bundle (`spectral_samples.csv`)
 - [x] Thesis-figure documentation gallery (`data/media/`)
-- [ ] GitHub Pages documentation site
-- [ ] Continuous deployment to Hugging Face Space (GitHub Actions)
-- [ ] Unit-test suite under `tests/`
+- [x] GitHub Pages documentation site (`docs/`)
+- [x] Continuous deployment to Hugging Face Space (GitHub Actions, token passed via Authorization header)
+- [x] Unit-test suite under `tests/` (pytest)
+- [x] Exhaustive band search: every combination of k or more bands, ranked by mean and worst-pair JM
+- [ ] "Must-include" band constraint for the exhaustive search (e.g. always keep RGB)
+- [ ] Greedy forward selection as a fallback above 20 candidate bands
 
 ---
 

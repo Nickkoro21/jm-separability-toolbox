@@ -18,6 +18,7 @@ Spectral Separability Explorer accepts any CSV with per-sample band values and a
 - Boxplots and violin plots per band (units-aware: reflectance, height in metres, temperature in °C)
 - Jeffries–Matusita distance matrices with discrete 4-bucket colour coding (Poor / Moderate / Good / Excellent)
 - Comparative analysis across band subsets (e.g. RGB vs 5 MS vs 7D = RGB + RedEdge + NIR + nDSM + Thermal)
+- Exhaustive band search: every combination of 3 or more bands (up to 20 candidate bands) ranked by mean and worst-pair JM, with the best subset at each size
 - Ranked separability table for pair-by-pair drill-down
 - ZIP export bundle with results CSV plus an HTML interpretation guide
 

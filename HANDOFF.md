@@ -13,12 +13,15 @@
 |---|---|---|
 | GitHub repo | ✅ Live | https://github.com/Nickkoro21/jm-separability-toolbox |
 | Hugging Face Space | 🟢 Running | https://huggingface.co/spaces/NickKoro21/jm-separability-toolbox |
-| GitHub Actions auto-sync | 🟢 Working | Triggers on push to `main` |
-| GitHub Pages | ❌ Not enabled yet | **This is Phase D** — the next deliverable |
+| GitHub Actions auto-sync | 🟢 Working | Triggers on push to `main`; HF token sent as an Authorization header (not in the URL) |
+| GitHub Pages | 🟢 `docs/` committed (Cayman) | https://nickkoro21.github.io/jm-separability-toolbox/ |
+| Test suite | 🟢 `pytest` (24 tests) | `tests/test_jm.py`, `tests/test_exhaustive.py` |
 
 The app works end-to-end on HF Space. The 6-tab Gradio workflow
 (Camera → Wavelengths → Upload CSV → Configure → Results → Export)
-is fully functional and deployed.
+is fully functional and deployed. Since Phase F, Step 4 also offers an
+**Exhaustive search** mode (every combination of ≥ k bands, ranked) —
+see §3 decisions D7–D11 and `src/core/exhaustive.py`.
 
 ---
 
@@ -84,6 +87,14 @@ src/
 │   │                      # rank-deficiency fallback, expm1 conversion
 │   │                      # to JM. 4-bucket scheme: Poor/Moderate/
 │   │                      # Good/Excellent (cutoffs 1.0 / 1.5 / 1.9).
+│   ├── exhaustive.py      # Exhaustive band-combination search. Per-class
+│   │                      # (μ, Σ) once over all candidates, principal
+│   │                      # sub-matrices per combo, batched Cholesky
+│   │                      # Bhattacharyya (LU fallback for non-PD).
+│   │                      # Ranking by mean_jm then min_jm; best_per_k();
+│   │                      # MAX_BANDS = 20, DEFAULT_MIN_K = 3. ~50 µs per
+│   │                      # combination. `python -m src.core.exhaustive`
+│   │                      # runs a self-test on the demo CSV.
 │   ├── presets.py         # 8 built-in sensors + Custom. Each preset is
 │   │                      # a dataclass with name, bands, wavelengths,
 │   │                      # source URL.
@@ -98,26 +109,40 @@ src/
 │   │                      # band.
 │   ├── tab3_upload.py     # Step 3. CSV upload, auto-schema preview,
 │   │                      # validation banner.
-│   ├── tab4_config.py     # Step 4. Subset selection (RGB / 5MS / 7D
-│   │                      # / All), class picker, Confirm to populate
-│   │                      # Tab 5.
+│   ├── tab4_config.py     # Step 4. Radio "Analysis mode": Manual
+│   │                      # subsets (RGB / 5MS / 7D / All rows) or
+│   │                      # Exhaustive search (candidate-band checkbox,
+│   │                      # min-k slider, combination-count estimate).
+│   │                      # Exhaustive confirm runs the search with a
+│   │                      # gr.Progress bar, stores the ExhaustiveResult
+│   │                      # in state["exhaustive_result"] and auto-fills
+│   │                      # state["subsets"] with Best-k. POPULATE_COUNT
+│   │                      # = 12 and populate_refs() define the Tab 3 →
+│   │                      # Tab 4 chain outputs (asserted in app.py).
 │   ├── tab5_results.py    # Step 5. The big one. Renders subset
 │   │                      # summary, comparative bar, bucket
 │   │                      # distribution, JM heatmaps per subset,
 │   │                      # ranked class pairs, spectral signatures
 │   │                      # (REFLECTANCE BANDS ONLY, no ±1σ),
-│   │                      # boxplots, violins. _TAB5_POPULATE_COUNT
-│   │                      # in app.py MUST equal len(populate_refs).
+│   │                      # boxplots, violins, plus the "Exhaustive
+│   │                      # Band Ranking" accordion (hidden in manual
+│   │                      # mode). MAX_SUBSETS = 10. _TAB5_POPULATE_COUNT
+│   │                      # in app.py MUST equal len(populate_refs) = 85.
 │   └── tab6_export.py     # Step 6. ZIP packager + the
 │                          # `example_guide.html` template (single big
 │                          # f-string in this file). The HF/GitHub
 │                          # author line and the section-5 description
-│                          # both live here.
+│                          # both live here. In exhaustive mode the ZIP
+│                          # also gets results/exhaustive_ranking.csv and
+│                          # exhaustive_best_per_k_{mean,min}.csv.
 │
 └── viz/                   # Plot factories. Plotly + matplotlib palette.
     ├── __init__.py        # Re-exports + generate_class_palette()
     │                      # (matplotlib tab10/tab20 → hex dict).
     ├── boxplots.py        # Per-band boxplots, faceted by class.
+    ├── exhaustive_plots.py # Separability-vs-k gain plot (cloud +
+    │                      # best-mean / best-min frontiers), display
+    │                      # tables and summary Markdown for Tab 5.
     ├── jm_comparative.py  # Subset summary table, comparative bar,
     │                      # bucket distribution stacked bar.
     ├── jm_matrix.py       # Single JM heatmap (used per subset).
@@ -166,6 +191,21 @@ data/
                                           #  any external links)
 ```
 
+### 2.3b `tests/`
+
+```
+tests/
+├── test_jm.py             # Thresholds, Bhattacharyya edge cases, jm_matrix
+│                          # symmetry, demo regression (1.288 / 1.551 / 1.838).
+└── test_exhaustive.py     # Exhaustive search == jm_matrix per subset,
+                           # ranking schema/order, best_per_k, subsets_for_tab5
+                           # capping, guards (MAX_BANDS, min_k, duplicates),
+                           # singular-class robustness, demo regression.
+```
+
+Run with `pip install pytest && pytest` from the repo root (not in
+`requirements.txt` on purpose — the HF Space does not need it).
+
 ### 2.4 `.github/workflows/`
 
 ```
@@ -173,7 +213,10 @@ data/
 └── sync-hf.yml          # The GitHub Actions auto-deploy workflow.
                          # Trigger: push to main + manual dispatch.
                          # Strategy: orphan-branch squash (see §4).
-                         # Required secret: HF_TOKEN (Write role).
+                         # Required secret: HF_TOKEN (Write role),
+                         # passed as an HTTP Authorization header via
+                         # `git -c http.extraheader=…` so it never lands
+                         # in process arguments or .git/config.
                          # Uses actions/checkout@v5 (Node.js 24).
 ```
 
@@ -200,6 +243,12 @@ These were made during the final cleanup pass before deployment. Do
 | D4 | **HTML export covers RGB / 5MS / 7D / All** | Earlier code only built 7D when `len(bands)==7`; this missed it because `nDSM_m` and `Thermal_C` are detected as non-spectral. Fix: search both `band_cols` and `non_spectral_cols` for the 7D match | `tab6_export.py`, the `subsets` dict construction near the top of `_render_example_guide` |
 | D5 | **HTML export has author line in header** | Attribution + supervisor + GitHub/LinkedIn links | `tab6_export.py` — `<p class="author-line">` block in the f-string template; matching CSS rule `.author-line { ... }` |
 | D6 | **f-string templates, no Jinja2** | Single source of truth, fewer deps; HANDOFF Decision #42 from earlier sessions | `requirements.txt` has no `jinja2` line. Don't add one |
+
+| D7 | **Exhaustive search is a Step 4 mode, not a new tab** | Keeps the 6-step chain and every downstream widget unchanged; the result flows through the same `state["subsets"]` contract | `tab4_config.py` radio `MODE_MANUAL` / `MODE_EXHAUSTIVE`; `state["analysis_mode"]`, `state["exhaustive_result"]` |
+| D8 | **Two ranking criteria, both always reported**: mean JM (primary, tie-break min JM) and min JM / worst pair (secondary) | Mean rewards "most pairs good"; min rewards "no weak link". They disagree on small k (demo: k=3 Red+NIR+nDSM vs Green+NIR+nDSM) and the user asked for both | `ExhaustiveResult.best_per_k(by=…)`, `rank_mean` / `rank_min` columns |
+| D9 | **MAX_BANDS = 20, DEFAULT_MIN_K = 3** | 20 bands → 1 048 365 combinations ≈ 1 min; 21 would double it. Decided with Nikolaos (2026-10-30). Above the cap the UI asks to deselect bands or raise k | `src/core/exhaustive.py` constants; `_validate_exhaustive` in Tab 4 |
+| D10 | **Best-per-k (mean criterion) become the Tab 5 subsets**, named `Best-3` … `Best-n`; capped at `MAX_SUBSETS = 10` keeping the smallest k's plus the full set | Heatmaps / ranked pairs / export work unchanged; band *reduction* is the usual question so small k wins when capping | `ExhaustiveResult.subsets_for_tab5()`, `tab5_results.MAX_SUBSETS` |
+| D11 | **Cholesky fast path, LU fallback; no SciPy in the kernel** | SciPy's batched `solve_triangular` loops in Python (measured 5× slower). `np.linalg.cholesky` + `np.linalg.solve` on the factor is the fastest NumPy-only route | `_jm_all_pairs` / `_batched_jm_lu` in `exhaustive.py` |
 
 If you're tempted to add `jinja2` for "cleaner templating": don't.
 The HTML guide is small enough that f-strings are clearer and the
@@ -238,8 +287,10 @@ The workflow handles this by:
     rm -rf data/media
     git add -A
     git commit -m "Deploy to HF Space (squashed from main)"
-- Force-push:
-    git push --force https://NickKoro21:$HF_TOKEN@huggingface.co/spaces/NickKoro21/jm-separability-toolbox hf-deploy-tmp:main
+- Force-push (token in an Authorization header, never in the URL):
+    AUTH_HEADER="Authorization: Basic $(printf 'NickKoro21:%s' "$HF_TOKEN" | base64 -w0)"
+    git -c http.extraheader="$AUTH_HEADER" push --force \
+        https://huggingface.co/spaces/NickKoro21/jm-separability-toolbox hf-deploy-tmp:main
 ```
 
 The same trick works locally if you ever need to push by hand:
@@ -306,7 +357,7 @@ sdk_version: "5.50.0"
 python_version: "3.11"
 app_file: app.py
 pinned: false
-license: mit
+license: agpl-3.0
 short_description: Sensor-agnostic JM separability for multispectral data
 ---
 ```
@@ -327,8 +378,9 @@ short_description: Sensor-agnostic JM separability for multispectral data
 | A | Local Git init + first commit | ✅ Complete (`65fd54e`) |
 | B | GitHub repo + push | ✅ Complete |
 | C | HF Space + Actions auto-sync | ✅ Complete after 5 deployment fixes |
-| **D** | **GitHub Pages docs site** | **⏳ Next — see §6** |
+| D | GitHub Pages docs site | ✅ `docs/` (index + `_config.yml`, Cayman). Remaining §6 pages (methodology, presets, troubleshooting) are optional |
 | E | (optional) HANDOFF.md update for thesis chapters | Separate workflow |
+| F | Exhaustive band search (Step 4 mode, Step 5 accordion, export CSVs, tests) | ✅ Complete (2026-10-30), branch `claude/amazing-tesla-gm7ftj` → `main` |
 
 ---
 
@@ -488,6 +540,9 @@ git ls-remote "https://NickKoro21:$token@huggingface.co/spaces/NickKoro21/jm-sep
   absolutes; documented in `methodology.md` (to be written).
 - **Subset** — A named selection of bands. Built-ins: RGB (3 bands),
   5MS (5 bands incl. RedEdge+NIR), 7D (5MS + nDSM + Thermal), All.
+  In exhaustive mode: `Best-k`, the top combination of k bands by mean JM.
+- **Exhaustive search** — Evaluate every combination of ≥ k candidate
+  bands (≤ 20) and rank by mean JM (primary) and min / worst-pair JM.
 - **Spectral signature** — Mean reflectance per class across bands,
   ordered by wavelength.
 - **MicaSense Altum-PT** — The thesis sensor. 7-band: Blue, Green,
@@ -506,7 +561,10 @@ of the following from this document alone:
 
 - [ ] Where does the footer HTML live? → `app.py`, lines ~55–80.
 - [ ] Where does `_TAB5_POPULATE_COUNT` live and what value should it
-      have? → `app.py`, currently 65.
+      have? → `app.py`, currently 85 (Tab 4's `POPULATE_COUNT` is 12).
+- [ ] How does exhaustive mode reach Tab 5? → `state["analysis_mode"]`
+      == "exhaustive" and `state["exhaustive_result"]` (an
+      `ExhaustiveResult`); `state["subsets"]` holds the Best-k subsets.
 - [ ] How do I push to HF Space without going through GitHub?
       → §8, "Manual HF push" snippet.
 - [ ] Why was Gradio pinned to 5.50? → §4.3 #4 and #5.
@@ -521,6 +579,7 @@ incomplete and should be updated before further work proceeds.
 ---
 
 *End of HANDOFF. Generated 2026-04-28 after Phases A/B/C completion
-and the Tab 5 / Tab 6 UX cleanup pass. Companion documents:
+and the Tab 5 / Tab 6 UX cleanup pass; updated 2026-10-30 for Phase F
+(exhaustive band search), the test suite and the hardened HF workflow. Companion documents:
 `README.md` (user-facing), `Project_Instructions_v3.md` (thesis-wide
 context).*
