@@ -6,6 +6,11 @@ Sequential workflow: STEP 6 of 6 (terminal — no Tab 7).
 Produces a downloadable ZIP bundle containing:
   * results/subset_summary.csv       — user's actual results
   * results/ranked_pairs_<subset>.csv — user's actual results, one per subset
+  * results/exhaustive_ranking.csv   — (exhaustive mode only) every band
+                                       combination evaluated, ranked
+  * results/exhaustive_best_per_k_mean.csv / _min.csv
+                                     — (exhaustive mode only) best subset
+                                       at each size under each criterion
   * example_guide.html               — interpretation guide using example dataset
   * README.txt                       — instructions
 
@@ -257,6 +262,13 @@ def _build_export_zip(state: dict) -> Path:
             index=False,
         )
 
+    # ── 1b) Exhaustive search results (when Tab 4 ran in that mode) ──
+    exhaustive = state.get("exhaustive_result")
+    exhaustive_note = ""
+    if state.get("analysis_mode") == "exhaustive" and exhaustive is not None:
+        _write_exhaustive_csvs(exhaustive, results_dir)
+        exhaustive_note = _render_exhaustive_readme(exhaustive)
+
     # ── 2) Example guide — render HTML using bundled example CSV ───
     html_path = bundle_dir / "example_guide.html"
     _render_example_guide(html_path)
@@ -265,7 +277,10 @@ def _build_export_zip(state: dict) -> Path:
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     sensor = state.get("preset_name") or "Custom sensor"
     n_classes = len(state.get("selected_class_ids") or [])
-    readme = _render_readme(timestamp, sensor, list(subsets.keys()), n_classes)
+    readme = _render_readme(
+        timestamp, sensor, list(subsets.keys()), n_classes,
+        exhaustive_note=exhaustive_note,
+    )
     (bundle_dir / "README.txt").write_text(readme, encoding="utf-8")
 
     # ── 4) Zip everything ───────────────────────────────────────────
@@ -279,8 +294,45 @@ def _build_export_zip(state: dict) -> Path:
     return zip_path
 
 
+def _write_exhaustive_csvs(result: Any, results_dir: Path) -> None:
+    """Write the exhaustive-search tables next to the per-subset CSVs."""
+    result.ranking.to_csv(results_dir / "exhaustive_ranking.csv", index=False)
+    result.best_per_k("mean").to_csv(
+        results_dir / "exhaustive_best_per_k_mean.csv", index=False,
+    )
+    result.best_per_k("min").to_csv(
+        results_dir / "exhaustive_best_per_k_min.csv", index=False,
+    )
+
+
+def _render_exhaustive_readme(result: Any) -> str:
+    """README.txt paragraph describing the exhaustive-search CSVs."""
+    best = result.top(1, by="mean").iloc[0]
+    return f"""
+    exhaustive_ranking.csv     EVERY band combination evaluated by the
+                               exhaustive search ({result.n_combinations:,}
+                               combinations of {result.min_k}..{result.max_k}
+                               bands from: {", ".join(result.bands)}).
+                               Sorted by mean_jm desc, then min_jm desc.
+                               rank_mean / rank_min give the position under
+                               each criterion; worst_pair names the class
+                               pair with the lowest JM for that subset.
+                               Best overall: {best["bands"]}
+                               (mean JM {best["mean_jm"]:.3f}).
+    exhaustive_best_per_k_mean.csv
+                               Best combination at each subset size k,
+                               ranked by mean JM (tie-break: min JM).
+    exhaustive_best_per_k_min.csv
+                               Best combination at each size k, ranked by
+                               the worst class pair (min JM; tie-break:
+                               mean JM). Prefer this when no pair may be
+                               left poorly separated.
+"""
+
+
 def _render_readme(
     timestamp: str, sensor: str, subset_names: list[str], n_classes: int,
+    *, exhaustive_note: str = "",
 ) -> str:
     """Return a human-readable README.txt content."""
     return f"""JM Separability Toolbox — Export Bundle
@@ -296,7 +348,7 @@ Contents
 results/
     subset_summary.csv         YOUR computed JM stats per subset.
     ranked_pairs_<subset>.csv  YOUR class pairs ranked worst-first.
-
+{exhaustive_note}
 example_guide.html
     Interpretation guide. Open in any modern web browser.
     NOTE: This file uses the BUNDLED example dataset
